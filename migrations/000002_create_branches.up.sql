@@ -1,0 +1,3 @@
+CREATE TABLE branches (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID NOT NULL REFERENCES companies(id), name TEXT NOT NULL, code TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ);
+CREATE INDEX idx_branches_company_id ON branches(company_id);
+CREATE UNIQUE INDEX ux_branches_company_code ON branches(company_id, code) WHERE deleted_at IS NULL AND code IS NOT NULL;

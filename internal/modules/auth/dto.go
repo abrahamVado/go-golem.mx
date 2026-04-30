@@ -1,0 +1,28 @@
+package auth
+
+type RegisterRequest struct {
+	CompanyName string `json:"company_name" binding:"required"`
+	Name        string `json:"name" binding:"required"`
+	Email       string `json:"email" binding:"required,email"`
+	Password    string `json:"password" binding:"required,min=10"`
+}
+type LoginRequest struct {
+	Email       string `json:"email" binding:"required,email"`
+	Password    string `json:"password" binding:"required"`
+	CompanySlug string `json:"company_slug"`
+}
+type RecoverRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+type ResetPasswordRequest struct {
+	Token    string `json:"token" binding:"required"`
+	Password string `json:"password" binding:"required,min=10"`
+}
+type MeUpdateRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+type AuthResponse struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	ExpiresIn   int64  `json:"expires_in"`
+}

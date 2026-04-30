@@ -1,0 +1,22 @@
+package users
+
+import (
+	"github.com/google/uuid"
+	"gorm.io/gorm"
+	"time"
+)
+
+type User struct {
+	ID               uuid.UUID      `json:"id" gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+	CompanyID        uuid.UUID      `json:"company_id" gorm:"type:uuid;not null;index"`
+	BranchID         *uuid.UUID     `json:"branch_id,omitempty" gorm:"type:uuid;index"`
+	Email            string         `json:"email" gorm:"not null"`
+	Name             string         `json:"name" gorm:"not null"`
+	PasswordHash     string         `json:"-" gorm:"not null"`
+	Status           string         `json:"status" gorm:"not null;default:active"`
+	FailedLoginCount int            `json:"-"`
+	LockedUntil      *time.Time     `json:"-"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `json:"-" gorm:"index"`
+}
