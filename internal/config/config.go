@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -8,75 +9,269 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// -----------------------------------------------------------------------------
+// APPLICATION CONFIGURATION
+// -----------------------------------------------------------------------------
+//
+// This package loads runtime configuration from environment variables.
+//
+// Design goals:
+//
+//   - predictable startup behavior
+//   - explicit configuration
+//   - secure defaults
+//   - fail-fast validation
+//   - environment isolation
+//
+// Configuration sources:
+//
+//   1) environment variables
+//   2) .env file (development only)
+//
+// Production rule:
+//
+//   Production environments should NOT rely on .env files.
+//   Configuration should come from:
+//
+//     - container runtime
+//     - orchestrator
+//     - secret manager
+//
+// -----------------------------------------------------------------------------
+
 type Config struct {
-	AppEnv               string
-	AppPort              string
-	AppURL               string
-	FrontendURL          string
-	DatabaseURL          string
-	JWTAccessSecret      string
-	JWTAccessTTL         time.Duration
-	RefreshTokenTTL      time.Duration
-	CookieDomain         string
-	CookieSecure         bool
-	BcryptCost           int
+	AppEnv string
+	AppPort string
+	AppURL string
+
+	FrontendURL string
+
+	DatabaseURL string
+
+	JWTAccessSecret string
+	JWTAccessTTL    time.Duration
+	RefreshTokenTTL time.Duration
+
+	CookieDomain string
+	CookieSecure bool
+
+	BcryptCost int
+
 	DefaultOwnerEmail    string
 	DefaultOwnerPassword string
 	DefaultCompanyName   string
 }
 
+// Load reads configuration from environment variables.
+//
+// Startup behavior:
+//
+//   - loads .env in local/dev
+//   - validates required variables
+//   - validates security constraints
+//   - returns immutable configuration
+//
+// This function should be called exactly once during application startup.
 func Load() Config {
-	_ = godotenv.Load()
-	return Config{
-		AppEnv:               env("APP_ENV", "local"),
-		AppPort:              env("APP_PORT", "8080"),
-		AppURL:               env("APP_URL", "http://localhost:8080"),
-		FrontendURL:          env("FRONTEND_URL", "http://localhost:3000"),
-		DatabaseURL:          mustEnv("DATABASE_URL"),
-		JWTAccessSecret:      mustEnv("JWT_ACCESS_SECRET"),
-		JWTAccessTTL:         time.Duration(envInt("JWT_ACCESS_TTL_MINUTES", 15)) * time.Minute,
-		RefreshTokenTTL:      time.Duration(envInt("REFRESH_TOKEN_TTL_DAYS", 30)) * 24 * time.Hour,
-		CookieDomain:         env("COOKIE_DOMAIN", "localhost"),
-		CookieSecure:         envBool("COOKIE_SECURE", false),
-		BcryptCost:           envInt("BCRYPT_COST", 12),
-		DefaultOwnerEmail:    env("DEFAULT_OWNER_EMAIL", "owner@example.com"),
-		DefaultOwnerPassword: env("DEFAULT_OWNER_PASSWORD", "ChangeMe123!"),
-		DefaultCompanyName:   env("DEFAULT_COMPANY_NAME", "Demo Company"),
+
+	// -------------------------------------------------------------------------
+	// Load .env file for development environments
+	// -------------------------------------------------------------------------
+	//
+	// We intentionally ignore errors because:
+	//
+	//   - production environments do not use .env
+	//   - missing file is not an error
+	//
+	// .env loading should only happen in:
+	//
+	//   local
+	//   development
+	//   test
+	//
+	envMode := os.Getenv("APP_ENV")
+
+	if envMode == "" || envMode == "local" || envMode == "development" {
+		_ = godotenv.Load()
+	}
+
+	cfg := Config{
+
+		AppEnv: env("APP_ENV", "local"),
+
+		AppPort: env("APP_PORT", "8080"),
+
+		AppURL: env(
+			"APP_URL",
+			"http://localhost:8080",
+		),
+
+		FrontendURL: env(
+			"FRONTEND_URL",
+			"http://localhost:3000",
+		),
+
+		// Required infrastructure variables
+		DatabaseURL: mustEnv("DATABASE_URL"),
+
+		// JWT configuration
+		JWTAccessSecret: mustEnv("JWT_ACCESS_SECRET"),
+
+		JWTAccessTTL: time.Duration(
+			envInt("JWT_ACCESS_TTL_MINUTES", 15),
+		) * time.Minute,
+
+		RefreshTokenTTL: time.Duration(
+			envInt("REFRESH_TOKEN_TTL_DAYS", 30),
+		) * 24 * time.Hour,
+
+		// Cookie configuration
+		CookieDomain: env(
+			"COOKIE_DOMAIN",
+			"localhost",
+		),
+
+		CookieSecure: envBool(
+			"COOKIE_SECURE",
+			false,
+		),
+
+		// Password hashing cost
+		BcryptCost: envInt(
+			"BCRYPT_COST",
+			12,
+		),
+
+		// Initial bootstrap data
+		DefaultOwnerEmail: env(
+			"DEFAULT_OWNER_EMAIL",
+			"owner@example.com",
+		),
+
+		DefaultOwnerPassword: env(
+			"DEFAULT_OWNER_PASSWORD",
+			"ChangeMe123!",
+		),
+
+		DefaultCompanyName: env(
+			"DEFAULT_COMPANY_NAME",
+			"Demo Company",
+		),
+	}
+
+	validate(cfg)
+
+	return cfg
+}
+
+// -----------------------------------------------------------------------------
+// CONFIG VALIDATION
+// -----------------------------------------------------------------------------
+//
+// This function ensures configuration is safe before the server starts.
+//
+// Fail-fast design:
+//
+// The application should crash immediately if configuration is invalid.
+// This prevents running in an unsafe state.
+//
+func validate(cfg Config) {
+
+	// -------------------------------------------------------------------------
+	// JWT secret strength
+	// -------------------------------------------------------------------------
+	if len(cfg.JWTAccessSecret) < 32 {
+		panic(
+			"JWT_ACCESS_SECRET must be at least 32 characters",
+		)
+	}
+
+	// -------------------------------------------------------------------------
+	// Production cookie safety
+	// -------------------------------------------------------------------------
+	if cfg.AppEnv == "production" {
+
+		if !cfg.CookieSecure {
+			panic(
+				"COOKIE_SECURE must be true in production",
+			)
+		}
+
+		if cfg.CookieDomain == "localhost" {
+			panic(
+				"COOKIE_DOMAIN must be configured in production",
+			)
+		}
+	}
+
+	// -------------------------------------------------------------------------
+	// Bcrypt cost sanity
+	// -------------------------------------------------------------------------
+	if cfg.BcryptCost < 10 {
+		panic(
+			"BCRYPT_COST too low; minimum recommended is 10",
+		)
+	}
+
+	if cfg.BcryptCost > 16 {
+		panic(
+			"BCRYPT_COST too high; may impact performance",
+		)
 	}
 }
 
-func env(k, d string) string {
-	if v := os.Getenv(k); v != "" {
+// -----------------------------------------------------------------------------
+// ENVIRONMENT HELPERS
+// -----------------------------------------------------------------------------
+
+func env(key, def string) string {
+	if v := os.Getenv(key); v != "" {
 		return v
 	}
-	return d
+	return def
 }
-func mustEnv(k string) string {
-	v := os.Getenv(k)
+
+func mustEnv(key string) string {
+	v := os.Getenv(key)
+
 	if v == "" {
-		panic("missing env: " + k)
+		panic(
+			fmt.Sprintf(
+				"missing required environment variable: %s",
+				key,
+			),
+		)
 	}
+
 	return v
 }
-func envInt(k string, d int) int {
-	v := os.Getenv(k)
+
+func envInt(key string, def int) int {
+	v := os.Getenv(key)
+
 	if v == "" {
-		return d
+		return def
 	}
+
 	i, err := strconv.Atoi(v)
 	if err != nil {
-		return d
+		return def
 	}
+
 	return i
 }
-func envBool(k string, d bool) bool {
-	v := os.Getenv(k)
+
+func envBool(key string, def bool) bool {
+	v := os.Getenv(key)
+
 	if v == "" {
-		return d
+		return def
 	}
+
 	b, err := strconv.ParseBool(v)
 	if err != nil {
-		return d
+		return def
 	}
+
 	return b
 }

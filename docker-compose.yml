@@ -1,27 +1,55 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
+
     environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: app
-      POSTGRES_DB: app
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+
     volumes:
       - pgdata:/var/lib/postgresql/data
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+    networks:
+      - core
+
   api:
     build: .
-    env_file: .env
+    restart: unless-stopped
+
+    environment:
+      APP_ENV: production
+      APP_PORT: "8080"
+      APP_URL: ${APP_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_ACCESS_TTL_MINUTES: ${JWT_ACCESS_TTL_MINUTES}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN}
+      COOKIE_SECURE: "true"
+      BCRYPT_COST: ${BCRYPT_COST}
+
     ports:
       - "8080:8080"
+
     depends_on:
       postgres:
         condition: service_healthy
+
+    networks:
+      - core
+
 volumes:
   pgdata:
+
+networks:
+  core:
+    driver: bridge
