@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"github.com/example/gin-multitenant-backend/internal/modules/users"
+	"github.com/golem-mx/core-api/internal/modules/users"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"time"

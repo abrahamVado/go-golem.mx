@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"github.com/example/gin-multitenant-backend/internal/config"
-	"github.com/example/gin-multitenant-backend/internal/response"
-	"github.com/example/gin-multitenant-backend/internal/tenancy"
+	"github.com/golem-mx/core-api/internal/config"
+	"github.com/golem-mx/core-api/internal/response"
+	"github.com/golem-mx/core-api/internal/tenancy"
 	"github.com/gin-gonic/gin"
 	"net/http"
 )

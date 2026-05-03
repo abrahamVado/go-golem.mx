@@ -1,9 +1,9 @@
 package main
 
 import (
-	"github.com/example/gin-multitenant-backend/internal/config"
-	"github.com/example/gin-multitenant-backend/internal/database"
-	"github.com/example/gin-multitenant-backend/internal/router"
+	"github.com/golem-mx/core-api/internal/config"
+	"github.com/golem-mx/core-api/internal/database"
+	"github.com/golem-mx/core-api/internal/router"
 	"log"
 )
 

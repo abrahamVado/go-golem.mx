@@ -1,2 +1,0 @@
-CREATE TABLE role_permissions (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), role_id UUID NOT NULL REFERENCES roles(id), permission_id UUID NOT NULL REFERENCES permissions(id), created_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX ux_role_permissions ON role_permissions(role_id, permission_id);

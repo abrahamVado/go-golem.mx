@@ -1,78 +1,250 @@
-package router
-
-import (
-	"github.com/example/gin-multitenant-backend/internal/authorization"
-	"github.com/example/gin-multitenant-backend/internal/config"
-	"github.com/example/gin-multitenant-backend/internal/middleware"
-	auditmod "github.com/example/gin-multitenant-backend/internal/modules/audit"
-	authmod "github.com/example/gin-multitenant-backend/internal/modules/auth"
-	branchesmod "github.com/example/gin-multitenant-backend/internal/modules/branches"
-	companiesmod "github.com/example/gin-multitenant-backend/internal/modules/companies"
-	dashboardmod "github.com/example/gin-multitenant-backend/internal/modules/dashboard"
-	permissionsmod "github.com/example/gin-multitenant-backend/internal/modules/permissions"
-	rolesmod "github.com/example/gin-multitenant-backend/internal/modules/roles"
-	settingsmod "github.com/example/gin-multitenant-backend/internal/modules/settings"
-	usersmod "github.com/example/gin-multitenant-backend/internal/modules/users"
-	"github.com/example/gin-multitenant-backend/internal/response"
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-)
-
+// New builds and returns the main Gin HTTP engine.
+//
+// This function is the HTTP composition root of the application.
+// Its responsibility is to:
+//
+//   - Initialize the web framework
+//   - Register global middleware
+//   - Define API versioning
+//   - Wire authorization and handlers
+//   - Register public and private routes
+//
+// Important design principle:
+//
+// This function should ONLY wire infrastructure.
+// It should NOT contain:
+//
+//   - business logic
+//   - database queries
+//   - validation rules
+//   - authorization logic
+//
+// Those belong in services, repositories, and middleware.
 func New(db *gorm.DB, cfg config.Config) *gin.Engine {
+
+	// ---------------------------------------------------------------------
+	// Create the HTTP engine
+	// ---------------------------------------------------------------------
+	//
+	// gin.New() creates a clean engine without default middleware.
+	// This is recommended for production because we explicitly control
+	// the middleware stack.
 	r := gin.New()
-	r.Use(gin.Recovery(), gin.Logger(), middleware.RequestID(), middleware.SecureHeaders(), middleware.CORS(cfg.FrontendURL), middleware.RateLimit())
+
+	// ---------------------------------------------------------------------
+	// Global middleware stack
+	// ---------------------------------------------------------------------
+	//
+	// Middleware order is intentional and critical.
+	//
+	// 1) Recovery
+	//    Prevents the server from crashing on panic.
+	//
+	// 2) Logger
+	//    Records request metadata.
+	//
+	// 3) RequestID
+	//    Generates a unique request identifier.
+	//    Used for tracing, debugging, and audit logs.
+	//
+	// 4) SecureHeaders
+	//    Adds security headers:
+	//      - X-Frame-Options
+	//      - X-Content-Type-Options
+	//      - Content-Security-Policy
+	//
+	// 5) CORS
+	//    Allows frontend communication.
+	//
+	// 6) RateLimit
+	//    Protects API from abuse and brute-force attacks.
+	r.Use(
+		gin.Recovery(),
+		gin.Logger(),
+		middleware.RequestID(),
+		middleware.SecureHeaders(),
+		middleware.CORS(cfg.FrontendURL),
+		middleware.RateLimit(),
+	)
+
+	// ---------------------------------------------------------------------
+	// API versioning
+	// ---------------------------------------------------------------------
+	//
+	// Always version APIs from day one.
+	//
+	// This prevents breaking clients when new versions are released.
 	api := r.Group("/api/v1")
-	api.GET("/health", func(c *gin.Context) { response.OK(c, gin.H{"status": "ok"}) })
 
+	// ---------------------------------------------------------------------
+	// Health check endpoint
+	// ---------------------------------------------------------------------
+	//
+	// Used by:
+	//
+	//   - Docker health checks
+	//   - Kubernetes readiness probes
+	//   - Load balancers
+	//   - Monitoring systems
+	//
+	// This endpoint must:
+	//
+	//   - be fast
+	//   - be public
+	//   - never access the database unless necessary
+	api.GET("/health", func(c *gin.Context) {
+		response.OK(c, gin.H{
+			"status": "ok",
+		})
+	})
+
+	// ---------------------------------------------------------------------
+	// RBAC authorization service
+	// ---------------------------------------------------------------------
+	//
+	// This service validates permissions such as:
+	//
+	//   users.read
+	//   users.create
+	//   roles.update
+	//   companies.delete
+	//
+	// Future optimization:
+	//
+	//   - Permission caching
+	//   - Redis permission store
+	//   - Policy engine integration
 	rbac := authorization.New(db)
-	authH := authmod.NewHandler(authmod.NewService(authmod.NewRepository(db), cfg), cfg)
-	api.POST("/auth/register", authH.Register)
-	api.POST("/auth/login", authH.Login)
-	api.POST("/auth/refresh", authH.Refresh)
-	api.POST("/auth/recover", authH.Recover)
-	api.POST("/auth/reset-password", authH.ResetPassword)
 
+	// ---------------------------------------------------------------------
+	// Authentication handler wiring
+	// ---------------------------------------------------------------------
+	//
+	// Repository → database access
+	// Service    → business rules
+	// Handler    → HTTP interface
+	authH := authmod.NewHandler(
+		authmod.NewService(
+			authmod.NewRepository(db),
+			cfg,
+		),
+		cfg,
+	)
+
+	// ---------------------------------------------------------------------
+	// Public authentication routes
+	// ---------------------------------------------------------------------
+	//
+	// These routes do NOT require authentication.
+	//
+	// Security expectations:
+	//
+	//   - rate limited
+	//   - audit logged
+	//   - brute-force protected
+	registerPublicAuthRoutes(api, authH)
+
+	// ---------------------------------------------------------------------
+	// Private route group
+	// ---------------------------------------------------------------------
+	//
+	// All routes inside this group require authentication.
+	//
+	// RequireAuth middleware should:
+	//
+	//   - validate JWT signature
+	//   - validate expiration
+	//   - extract user ID
+	//   - extract tenant/company ID
+	//   - inject claims into context
 	private := api.Group("")
-	private.Use(middleware.RequireAuth(cfg.JWTAccessSecret))
-	private.POST("/auth/logout", authH.Logout)
-	private.GET("/me", authH.Me)
-	private.PATCH("/me", authH.UpdateMe)
 
-	private.GET("/dashboard", authorization.RequirePermission(rbac, "dashboard.read"), dashboardmod.NewHandler(dashboardmod.NewService()).Index)
+	private.Use(
+		middleware.RequireAuth(cfg.JWTAccessSecret),
+	)
 
-	usersH := usersmod.NewHandler(usersmod.NewService(usersmod.NewRepository(db)))
-	private.GET("/users", authorization.RequirePermission(rbac, "users.read"), usersH.List)
-	private.POST("/users", authorization.RequirePermission(rbac, "users.create"), usersH.Create)
-	private.GET("/users/:id", authorization.RequirePermission(rbac, "users.read"), usersH.Get)
-	private.PATCH("/users/:id", authorization.RequirePermission(rbac, "users.update"), usersH.Update)
-	private.DELETE("/users/:id", authorization.RequirePermission(rbac, "users.delete"), usersH.Delete)
+	// ---------------------------------------------------------------------
+	// Private authentication routes
+	// ---------------------------------------------------------------------
+	//
+	// These operate on the current authenticated user.
+	//
+	// Examples:
+	//
+	//   logout
+	//   get profile
+	//   update profile
+	registerPrivateAuthRoutes(private, authH)
 
-	rolesH := rolesmod.NewHandler(rolesmod.NewService(rolesmod.NewRepository(db)))
-	private.GET("/roles", authorization.RequirePermission(rbac, "roles.read"), rolesH.List)
-	private.POST("/roles", authorization.RequirePermission(rbac, "roles.create"), rolesH.Create)
-	private.GET("/roles/:id", authorization.RequirePermission(rbac, "roles.read"), rolesH.Get)
-	private.PATCH("/roles/:id", authorization.RequirePermission(rbac, "roles.update"), rolesH.Update)
-	private.DELETE("/roles/:id", authorization.RequirePermission(rbac, "roles.delete"), rolesH.Delete)
+	// ---------------------------------------------------------------------
+	// Users module wiring
+	// ---------------------------------------------------------------------
+	//
+	// This module manages system users.
+	//
+	// Typical permissions:
+	//
+	//   users.read
+	//   users.create
+	//   users.update
+	//   users.delete
+	usersH := usersmod.NewHandler(
+		usersmod.NewService(
+			usersmod.NewRepository(db),
+		),
+	)
 
-	permsH := permissionsmod.NewHandler(permissionsmod.NewService(permissionsmod.NewRepository(db)))
-	private.GET("/permissions", authorization.RequirePermission(rbac, "permissions.read"), permsH.List)
+	registerUserRoutes(private, rbac, usersH)
 
-	settingsH := settingsmod.NewHandler(settingsmod.NewService(settingsmod.NewRepository(db)))
-	private.GET("/settings", authorization.RequirePermission(rbac, "settings.read"), settingsH.List)
-	private.PATCH("/settings", authorization.RequirePermission(rbac, "settings.update"), settingsH.Update)
+	// ---------------------------------------------------------------------
+	// Roles module wiring
+	// ---------------------------------------------------------------------
+	//
+	// Roles define permission bundles.
+	//
+	// Important rule:
+	//
+	// System roles should be immutable:
+	//
+	//   owner
+	//   admin
+	//   support
+	rolesH := rolesmod.NewHandler(
+		rolesmod.NewService(
+			rolesmod.NewRepository(db),
+		),
+	)
 
-	companiesH := companiesmod.NewHandler(companiesmod.NewService(companiesmod.NewRepository(db)))
-	private.GET("/companies/current", authorization.RequirePermission(rbac, "companies.read"), companiesH.Current)
-	private.PATCH("/companies/current", authorization.RequirePermission(rbac, "companies.update"), companiesH.UpdateCurrent)
+	registerRoleRoutes(private, rbac, rolesH)
 
-	branchesH := branchesmod.NewHandler(branchesmod.NewService(branchesmod.NewRepository(db)))
-	private.GET("/branches", authorization.RequirePermission(rbac, "branches.read"), branchesH.List)
-	private.POST("/branches", authorization.RequirePermission(rbac, "branches.create"), branchesH.Create)
-	private.GET("/branches/:id", authorization.RequirePermission(rbac, "branches.read"), branchesH.Get)
-	private.PATCH("/branches/:id", authorization.RequirePermission(rbac, "branches.update"), branchesH.Update)
-	private.DELETE("/branches/:id", authorization.RequirePermission(rbac, "branches.delete"), branchesH.Delete)
+	// ---------------------------------------------------------------------
+	// Companies / Tenant module wiring
+	// ---------------------------------------------------------------------
+	//
+	// Represents the tenant entity in a multi-tenant SaaS.
+	//
+	// "current" routes are safer than ID-based routes.
+	//
+	// This prevents horizontal privilege escalation.
+	companiesH := companiesmod.NewHandler(
+		companiesmod.NewService(
+			companiesmod.NewRepository(db),
+		),
+	)
 
-	auditH := auditmod.NewHandler(auditmod.NewService(auditmod.NewRepository(db)))
-	private.GET("/audit-logs", authorization.RequirePermission(rbac, "audit.read"), auditH.List)
+	registerCompanyRoutes(private, rbac, companiesH)
+
+	// ---------------------------------------------------------------------
+	// Router ready
+	// ---------------------------------------------------------------------
+	//
+	// At this point:
+	//
+	//   - middleware is configured
+	//   - routes are registered
+	//   - handlers are wired
+	//   - authorization is enabled
+	//
+	// The server is ready to start.
 	return r
 }

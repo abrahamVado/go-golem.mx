@@ -1,0 +1,3 @@
+DROP TRIGGER IF EXISTS trg_org_owner_membership_after_insert;
+DROP TRIGGER IF EXISTS trg_tasks_validate_column_board_before_update;
+DROP TRIGGER IF EXISTS trg_tasks_validate_column_board_before_insert;

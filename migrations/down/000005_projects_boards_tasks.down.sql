@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS task_statuses;
+DROP TABLE IF EXISTS board_columns;
+DROP TABLE IF EXISTS boards;
+DROP TABLE IF EXISTS projects;

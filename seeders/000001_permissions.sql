@@ -1,0 +1,25 @@
+INSERT INTO permissions (slug, resource, action, description) VALUES
+('organization:view','organization','view','View organization details'),
+('organization:update','organization','update','Update organization settings'),
+('member:invite','member','invite','Invite users'),
+('member:update','member','update','Update members'),
+('member:remove','member','remove','Remove members'),
+('role:manage','role','manage','Manage roles and permissions'),
+('project:create','project','create','Create projects'),
+('project:view','project','view','View projects'),
+('project:update','project','update','Update projects'),
+('project:delete','project','delete','Delete projects'),
+('task:create','task','create','Create tasks'),
+('task:view','task','view','View tasks'),
+('task:update','task','update','Update tasks'),
+('task:delete','task','delete','Delete tasks'),
+('file:upload','file','upload','Upload files'),
+('file:view','file','view','View files'),
+('file:delete','file','delete','Delete files'),
+('webhook:manage','webhook','manage','Manage webhooks'),
+('billing:manage','billing','manage','Manage billing'),
+('apikey:manage','apikey','manage','Manage API clients and keys'),
+('audit:view','audit','view','View audit logs'),
+('chat:use','chat','use','Use chat features')
+ON DUPLICATE KEY UPDATE
+resource = VALUES(resource), action = VALUES(action), description = VALUES(description);

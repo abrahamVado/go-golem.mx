@@ -1,3 +1,0 @@
-CREATE TABLE roles (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID REFERENCES companies(id), name TEXT NOT NULL, description TEXT, is_system BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), deleted_at TIMESTAMPTZ);
-CREATE UNIQUE INDEX ux_roles_company_name ON roles(company_id, name) WHERE deleted_at IS NULL;
-CREATE INDEX idx_roles_company_id ON roles(company_id);

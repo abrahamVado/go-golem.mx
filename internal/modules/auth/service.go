@@ -2,8 +2,8 @@ package auth
 
 import (
 	"errors"
-	"github.com/example/gin-multitenant-backend/internal/config"
-	"github.com/example/gin-multitenant-backend/internal/security"
+	"github.com/golem-mx/core-api/internal/config"
+	"github.com/golem-mx/core-api/internal/security"
 	"github.com/google/uuid"
 	"time"
 )

@@ -1,3 +1,0 @@
-CREATE TABLE settings (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), company_id UUID NOT NULL REFERENCES companies(id), key TEXT NOT NULL, value JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
-CREATE UNIQUE INDEX ux_settings_company_key ON settings(company_id, key);
-CREATE INDEX idx_settings_company_id ON settings(company_id);
