@@ -1,36 +1,166 @@
-# Gin Multi-Tenant SaaS Backend Scaffold
+# golem.mx — Go API (Gin Multi-Tenant SaaS Backend)
 
-Production-minded Go/Gin API scaffold for a Next.js frontend with PostgreSQL, GORM, SQL migrations, JWT access tokens, HTTP-only refresh cookies, tenant isolation, RBAC, audit logs, seed commands, and future admin CLI/TUI expansion.
+Production-ready Go backend built with Gin for a multi-tenant SaaS platform.
 
-## Run locally
+## Features
 
-```bash
+- JWT authentication (access + refresh)
+- Multi-tenant isolation
+- RBAC (roles + permissions)
+- PostgreSQL + GORM
+- SQL migrations
+- Seed system
+- Audit logging
+- Docker-first workflow
+- CLI tools (migrate, seed, admin)
+
+--------------------------------------------------
+
+## Architecture
+
+Client (Next.js)
+   ->
+Nginx Proxy
+   ->
+Go API
+   ->
+PostgreSQL
+
+--------------------------------------------------
+
+## Local Development
+
+1. Setup environment
+
 cp .env.example .env
+
+2. Start database
+
 docker compose up -d postgres
+
+3. Install dependencies
+
 go mod tidy
+
+4. Run migrations
+
 make migrate-up
+
+5. Seed database
+
 make seed
+
+6. Run API
+
 make dev
-```
+
+7. Test
+
+curl http://localhost:8080/api/v1/health
+
+--------------------------------------------------
+
+## Production
+
+docker compose up -d --build
 
 Health check:
 
-```bash
-curl http://localhost:8080/api/v1/health
-```
+curl http://localhost/api/health
 
-## Auth architecture
+--------------------------------------------------
 
-- Access token: short-lived JWT sent in `Authorization: Bearer <token>`.
-- Refresh token: opaque token stored in `HttpOnly`, `Secure`, `SameSite` cookie.
-- Refresh tokens are hashed in PostgreSQL.
-- Refresh rotates tokens and revokes the previous token.
-- Logout revokes the refresh token.
+## Authentication
 
-## Multi-tenancy
+Access Token:
+- JWT
+- Sent via Authorization header
+- Short-lived
 
-Every tenant-owned module carries `company_id`. Private requests resolve tenant context from the authenticated JWT. Repository methods should always scope queries with the company ID.
+Refresh Token:
+- HttpOnly cookie
+- Stored hashed in DB
+- Rotated on refresh
+
+--------------------------------------------------
+
+## Multi-Tenancy
+
+All data must include company_id
+
+Rule:
+WHERE company_id = current_user.company_id
+
+Never trust client-provided tenant IDs
+
+--------------------------------------------------
 
 ## RBAC
 
-Permissions are global. Roles can be system-level or company-level. `user_roles` is company-scoped. Route middleware supports permission, any-permission, and role checks.
+Permissions:
+users.read
+users.create
+users.update
+users.delete
+
+Roles:
+owner, admin, manager, viewer
+
+--------------------------------------------------
+
+## API
+
+Base prefix:
+/api/v1
+
+Public:
+GET  /health
+POST /login
+POST /register
+
+Private:
+GET /me
+GET /users
+GET /roles
+GET /settings
+
+--------------------------------------------------
+
+## Database
+
+PostgreSQL + GORM
+
+Migrations:
+make migrate-up
+make migrate-down
+
+Seeds:
+make seed
+
+--------------------------------------------------
+
+## CLI
+
+docker exec -it golem-api ./migrate up
+docker exec -it golem-api ./seed
+
+--------------------------------------------------
+
+## Environment
+
+PORT=8080
+DATABASE_URL=postgres://user:pass@postgres:5432/db?sslmode=disable
+JWT_SECRET=secret
+REFRESH_SECRET=secret
+
+--------------------------------------------------
+
+## Production Checklist
+
+- Use HTTPS
+- Do not expose DB
+- Use strong secrets
+- Enable backups
+- Add rate limiting
+
+--------------------------------------------------
