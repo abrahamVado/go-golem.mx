@@ -3,10 +3,11 @@ package middleware
 import (
 	"strings"
 
-	"github.com/golem-mx/core-api/internal/response"
-	"github.com/golem-mx/core-api/internal/security"
-	"github.com/golem-mx/core-api/internal/tenancy"
+	"github.com/abrahamVado/go-golem.mx/internal/response"
+	"github.com/abrahamVado/go-golem.mx/internal/security"
+	"github.com/abrahamVado/go-golem.mx/internal/tenancy"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // RequireAuth protects private API routes.
@@ -112,7 +113,7 @@ func RequireAuth(secret string) gin.HandlerFunc {
 		//
 		// Rejecting incomplete claims prevents corrupted or downgraded tokens
 		// from reaching private handlers.
-		if claims.UserID == "" || claims.CompanyID == "" {
+		if claims.UserID == uuid.Nil || claims.CompanyID == uuid.Nil {
 			response.Fail(c, 401, "INVALID_TOKEN_CLAIMS", "Invalid token claims")
 			c.Abort()
 			return

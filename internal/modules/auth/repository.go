@@ -3,7 +3,7 @@ package auth
 import (
 	"time"
 
-	"github.com/golem-mx/core-api/internal/modules/users"
+	"github.com/abrahamVado/go-golem.mx/internal/modules/users"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

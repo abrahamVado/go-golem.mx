@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/golem-mx/core-api/internal/modules/rbac"
-	"github.com/golem-mx/core-api/internal/response"
-	"github.com/golem-mx/core-api/internal/tenancy"
+	"github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
+	"github.com/abrahamVado/go-golem.mx/internal/response"
+	"github.com/abrahamVado/go-golem.mx/internal/tenancy"
 )
 
 // RequirePermission protects a route with one required permission.

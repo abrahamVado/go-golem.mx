@@ -3,9 +3,9 @@ package auth
 import (
 	"net/http"
 
-	"github.com/golem-mx/core-api/internal/config"
-	"github.com/golem-mx/core-api/internal/response"
-	"github.com/golem-mx/core-api/internal/tenancy"
+	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
+	"github.com/abrahamVado/go-golem.mx/internal/response"
+	"github.com/abrahamVado/go-golem.mx/internal/tenancy"
 	"github.com/gin-gonic/gin"
 )
 

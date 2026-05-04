@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -10,42 +11,6 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
-
-//
-// =====================================================
-// GOLEM DATABASE MIGRATION CLI
-// =====================================================
-//
-// This CLI runs database migrations inside the container.
-//
-// Why this exists:
-//
-// - Avoid manual SQL execution
-// - Keep schema versioned and reproducible
-// - Allow safe deploys (up/down migrations)
-//
-// Usage (inside container):
-//
-//   ./migrate up
-//   ./migrate down
-//   ./migrate force 1
-//   ./migrate version
-//
-// Docker usage:
-//
-//   docker exec -it golem-api ./migrate up
-//
-// IMPORTANT:
-//
-// - DATABASE_URL must be set
-// - migrations folder must exist inside container
-//
-// Example:
-//
-//   DATABASE_URL=postgres://user:pass@postgres:5432/db?sslmode=disable
-//
-// =====================================================
-//
 
 func main() {
 	if len(os.Args) < 2 {
@@ -60,89 +25,91 @@ func main() {
 		log.Fatal("DATABASE_URL is not set")
 	}
 
-	// Path inside container (ensure Dockerfile copies migrations)
-	migrationsPath := "file://migrations"
+	migrationsPath := os.Getenv("MIGRATIONS_PATH")
+	if migrationsPath == "" {
+		migrationsPath = "file://migrations"
+	}
 
-	m, err := migrate.New(
-		migrationsPath,
-		databaseURL,
-	)
+	m, err := migrate.New(migrationsPath, databaseURL)
 	if err != nil {
 		log.Fatalf("failed to init migrate: %v", err)
 	}
 
-	switch command {
+	sourceErr, dbErr := m.Close()
+	defer func() {
+		if sourceErr != nil {
+			log.Printf("migration source close error: %v", sourceErr)
+		}
+		if dbErr != nil {
+			log.Printf("migration database close error: %v", dbErr)
+		}
+	}()
 
-	// -------------------------------------------------
-	// APPLY ALL PENDING MIGRATIONS
-	// -------------------------------------------------
+	switch command {
 	case "up":
-		if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		err := m.Up()
+
+		if errors.Is(err, migrate.ErrNoChange) {
+			fmt.Println("no migrations to apply")
+			return
+		}
+
+		if err != nil {
 			log.Fatalf("migration up failed: %v", err)
 		}
+
 		fmt.Println("migrations applied")
 
-	// -------------------------------------------------
-	// ROLLBACK ONE STEP
-	// -------------------------------------------------
 	case "down":
-		if err := m.Steps(-1); err != nil {
+		err := m.Steps(-1)
+
+		if errors.Is(err, migrate.ErrNoChange) {
+			fmt.Println("no migration to rollback")
+			return
+		}
+
+		if err != nil {
 			log.Fatalf("migration down failed: %v", err)
 		}
+
 		fmt.Println("rolled back 1 migration")
 
-	// -------------------------------------------------
-	// FORCE VERSION (DANGEROUS)
-	// -------------------------------------------------
-	// Use only if migration state is broken
 	case "force":
 		if len(os.Args) < 3 {
 			log.Fatal("force requires version number")
 		}
 
-		version := os.Args[2]
-
-		var v int
-		_, err := fmt.Sscanf(version, "%d", &v)
-		if err != nil {
-			log.Fatalf("invalid version: %s", version)
+		var version int
+		if _, err := fmt.Sscanf(os.Args[2], "%d", &version); err != nil {
+			log.Fatalf("invalid version: %s", os.Args[2])
 		}
 
-		if err := m.Force(v); err != nil {
+		if err := m.Force(version); err != nil {
 			log.Fatalf("force failed: %v", err)
 		}
-		fmt.Printf("forced version to %d\n", v)
 
-	// -------------------------------------------------
-	// SHOW CURRENT VERSION
-	// -------------------------------------------------
+		fmt.Printf("forced version to %d\n", version)
+
 	case "version":
-		v, dirty, err := m.Version()
+		version, dirty, err := m.Version()
+
+		if errors.Is(err, migrate.ErrNilVersion) {
+			fmt.Println("no migrations applied")
+			return
+		}
+
 		if err != nil {
-			if err == migrate.ErrNilVersion {
-				fmt.Println("no migrations applied")
-				return
-			}
 			log.Fatalf("failed to get version: %v", err)
 		}
 
-		fmt.Printf("version: %d, dirty: %v\n", v, dirty)
+		fmt.Printf("version: %d, dirty: %v\n", version, dirty)
 
-	// -------------------------------------------------
-	// UNKNOWN COMMAND
-	// -------------------------------------------------
 	default:
 		fmt.Printf("unknown command: %s\n\n", command)
 		printHelp()
 		os.Exit(1)
 	}
 }
-
-//
-// =====================================================
-// HELP
-// =====================================================
-//
 
 func printHelp() {
 	fmt.Println(`
@@ -154,7 +121,7 @@ Usage:
 Commands:
   up           Apply all pending migrations
   down         Rollback last migration
-  force <ver>  Force migration version (dangerous)
+  force <ver>  Force migration version
   version      Show current migration version
 
 Examples:

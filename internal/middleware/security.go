@@ -3,6 +3,8 @@ package middleware
 import (
 	"strconv"
 	"time"
+	"context"
+	"net/http"	
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -17,7 +19,7 @@ import (
 //
 //   - trace logs
 //   - debug errors
-//   - connect audit events
+//   - connect audit events	
 //   - expose correlation ID to frontend
 //
 // Header returned:
@@ -175,6 +177,29 @@ func RateLimit() gin.HandlerFunc {
 			})
 			return
 		}
+
+		c.Next()
+	}
+}
+// BodySizeLimit limits the maximum request body size.
+//
+// Example:
+//
+//	BodySizeLimit(10 << 20) // 10 MB
+func BodySizeLimit(maxBytes int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		c.Next()
+	}
+}
+
+// Timeout adds a request-level context timeout.
+func Timeout(duration time.Duration) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), duration)
+		defer cancel()
+
+		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
 	}

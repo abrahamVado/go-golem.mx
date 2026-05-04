@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golem-mx/core-api/internal/config"
-	"github.com/golem-mx/core-api/internal/security"
+	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
+	"github.com/abrahamVado/go-golem.mx/internal/security"
 	"github.com/google/uuid"
 )
 
@@ -111,7 +111,7 @@ func (s *Service) Login(
 		return AuthResponse{}, "", err
 	}
 
-	refreshToken, err := security.NewOpaqueToken()
+	refreshToken, err := security.NewOpaqueToken(32)
 	if err != nil {
 		return AuthResponse{}, "", err
 	}
@@ -197,7 +197,7 @@ func (s *Service) Refresh(
 		return AuthResponse{}, "", err
 	}
 
-	newRefreshToken, err := security.NewOpaqueToken()
+	newRefreshToken, err := security.NewOpaqueToken(32)
 	if err != nil {
 		return AuthResponse{}, "", err
 	}

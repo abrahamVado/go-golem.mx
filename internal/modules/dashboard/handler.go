@@ -1,8 +1,8 @@
 package dashboard
 
 import (
-	"github.com/golem-mx/core-api/internal/response"
-	"github.com/golem-mx/core-api/internal/tenancy"
+	"github.com/abrahamVado/go-golem.mx/internal/response"
+	"github.com/abrahamVado/go-golem.mx/internal/tenancy"
 	"github.com/gin-gonic/gin"
 )
 

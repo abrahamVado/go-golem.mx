@@ -164,3 +164,8 @@ REFRESH_SECRET=secret
 - Add rate limiting
 
 --------------------------------------------------
+
+
+DEBUGGING
+
+docker logs golem-go-api

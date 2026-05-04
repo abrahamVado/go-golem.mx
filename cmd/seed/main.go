@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/golem-mx/core-api/internal/config"
-	"github.com/golem-mx/core-api/internal/database"
-	"github.com/golem-mx/core-api/seeders"
+	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
+	"github.com/abrahamVado/go-golem.mx/internal/platform/database"
+	"github.com/abrahamVado/go-golem.mx/seeders"
 )
 
 //
