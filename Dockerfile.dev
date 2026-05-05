@@ -9,6 +9,8 @@ RUN go mod download
 
 COPY . .
 
+RUN chmod +x /app/scripts/start-dev.sh
+
 EXPOSE 8080
 
-CMD ["go", "run", "./cmd/api"]
+CMD ["/app/scripts/start-dev.sh"]

@@ -173,7 +173,7 @@ func health() {
 //
 
 func printHelp() {
-	fmt.Println(`
+	fmt.Print(`
 Golem Admin CLI
 
 Usage:

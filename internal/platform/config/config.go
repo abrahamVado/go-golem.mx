@@ -115,7 +115,10 @@ func Load() Config {
 		DatabaseURL: mustEnv("DATABASE_URL"),
 
 		// JWT configuration
-		JWTAccessSecret: mustEnv("JWT_ACCESS_SECRET"),
+		JWTAccessSecret: env(
+			"JWT_ACCESS_SECRET",
+			"dev-jwt-access-secret-change-me-32-chars",
+		),
 
 		JWTAccessTTL: time.Duration(
 			envInt("JWT_ACCESS_TTL_MINUTES", 15),
@@ -145,12 +148,12 @@ func Load() Config {
 		// Initial bootstrap data
 		DefaultOwnerEmail: env(
 			"DEFAULT_OWNER_EMAIL",
-			"owner@example.com",
+			"admin@example.com",
 		),
 
 		DefaultOwnerPassword: env(
 			"DEFAULT_OWNER_PASSWORD",
-			"ChangeMe123!",
+			"password",
 		),
 
 		DefaultCompanyName: env(

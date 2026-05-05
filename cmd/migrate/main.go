@@ -35,8 +35,8 @@ func main() {
 		log.Fatalf("failed to init migrate: %v", err)
 	}
 
-	sourceErr, dbErr := m.Close()
 	defer func() {
+		sourceErr, dbErr := m.Close()
 		if sourceErr != nil {
 			log.Printf("migration source close error: %v", sourceErr)
 		}
@@ -112,7 +112,7 @@ func main() {
 }
 
 func printHelp() {
-	fmt.Println(`
+	fmt.Print(`
 Golem Migration CLI
 
 Usage:

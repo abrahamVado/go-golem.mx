@@ -66,7 +66,7 @@ docker compose up -d --build
 
 Health check:
 
-curl http://localhost/api/health
+curl http://localhost/api/v1/health
 
 --------------------------------------------------
 
@@ -114,9 +114,9 @@ Base prefix:
 /api/v1
 
 Public:
-GET  /health
-POST /login
-POST /register
+GET  /api/v1/health
+POST /api/v1/auth/login
+POST /api/v1/auth/register
 
 Private:
 GET /me
