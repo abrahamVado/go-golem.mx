@@ -176,9 +176,8 @@ func (s *Service) Refresh(
 
 	now := time.Now().UTC()
 
-	// These fields depend on your RefreshToken model.
-	// Keep this validation if your model has RevokedAt.
-	if !refreshRecord.RevokedAt.IsZero() {
+	// RevokedAt is nullable in the model, so nil means the token is still active.
+	if refreshRecord.RevokedAt != nil && !refreshRecord.RevokedAt.IsZero() {
 		return AuthResponse{}, "", ErrInvalidRefreshToken
 	}
 

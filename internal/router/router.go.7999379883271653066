@@ -3,17 +3,16 @@ package router
 import (
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/abrahamVado/go-golem.mx/internal/middleware"
 	authmod "github.com/abrahamVado/go-golem.mx/internal/modules/auth"
 	companiesmod "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
-	permissionsmod "github.com/abrahamVado/go-golem.mx/internal/modules/permissions"
 	projectsmod "github.com/abrahamVado/go-golem.mx/internal/modules/projects"
 	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
 	rolesmod "github.com/abrahamVado/go-golem.mx/internal/modules/roles"
 	usersmod "github.com/abrahamVado/go-golem.mx/internal/modules/users"
 	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
 	"github.com/abrahamVado/go-golem.mx/internal/response"
-	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -60,11 +59,6 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 		rolesmod.NewService(rolesmod.NewRepository(db)),
 	)
 	registerRoleRoutes(private, rbacService, rolesH)
-
-	permissionsH := permissionsmod.NewHandler(
-		permissionsmod.NewService(permissionsmod.NewRepository(db)),
-	)
-	registerPermissionRoutes(private, rbacService, permissionsH)
 
 	companiesH := companiesmod.NewHandler(
 		companiesmod.NewService(companiesmod.NewRepository(db)),

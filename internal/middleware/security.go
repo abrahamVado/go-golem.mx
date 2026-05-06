@@ -103,6 +103,8 @@ func CORS(frontend string) gin.HandlerFunc {
 			"Authorization",
 			"Content-Type",
 			"X-Request-ID",
+			"X-Team-ID",
+			"X-CSRF-Token",
 		},
 
 		ExposeHeaders: []string{

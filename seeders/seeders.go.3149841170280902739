@@ -6,8 +6,8 @@ import (
 
 	companiesmod "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
 	permissionsmod "github.com/abrahamVado/go-golem.mx/internal/modules/permissions"
-	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
 	rolesmod "github.com/abrahamVado/go-golem.mx/internal/modules/roles"
+	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
 	usersmod "github.com/abrahamVado/go-golem.mx/internal/modules/users"
 	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
 	"github.com/abrahamVado/go-golem.mx/internal/security"
@@ -75,10 +75,10 @@ func Run(db *gorm.DB, cfg config.Config) error {
 }
 
 type userRole struct {
-	UserID    uuid.UUID `gorm:"column:user_id"`
-	CompanyID uuid.UUID `gorm:"column:company_id"`
-	RoleID    uuid.UUID `gorm:"column:role_id"`
-	DeletedAt *string   `gorm:"column:deleted_at"`
+	UserID    uuid.UUID  `gorm:"column:user_id"`
+	CompanyID uuid.UUID  `gorm:"column:company_id"`
+	RoleID    uuid.UUID  `gorm:"column:role_id"`
+	DeletedAt *string    `gorm:"column:deleted_at"`
 }
 
 func (userRole) TableName() string { return "user_roles" }

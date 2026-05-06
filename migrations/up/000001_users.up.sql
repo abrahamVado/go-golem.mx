@@ -1,21 +1,22 @@
--- Core identity table. Users are global; access is always through organization membership.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TABLE users (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    email VARCHAR(255) NOT NULL,
-    password_hash VARCHAR(255) NULL,
-    full_name VARCHAR(160) NULL,
-    avatar_url VARCHAR(512) NULL,
-    timezone VARCHAR(64) NOT NULL DEFAULT 'UTC',
-    locale VARCHAR(20) NOT NULL DEFAULT 'en',
-    email_verified_at DATETIME NULL,
-    is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    is_platform_admin BOOLEAN NOT NULL DEFAULT FALSE,
-    last_login_at DATETIME NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    deleted_at DATETIME NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_users_email (email),
-    KEY idx_users_active_deleted (is_active, deleted_at),
-    KEY idx_users_created_at (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL,
+    branch_id UUID NULL,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    failed_login_count INTEGER NOT NULL DEFAULT 0,
+    locked_until TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ NULL
+);
+
+CREATE INDEX idx_users_company_id ON users(company_id);
+CREATE INDEX idx_users_branch_id ON users(branch_id);
+CREATE INDEX idx_users_status ON users(status);
+CREATE INDEX idx_users_deleted_at ON users(deleted_at);
+CREATE INDEX idx_users_email_status ON users(email, status);

@@ -30,6 +30,12 @@ func registerRoleRoutes(
 		rolesH.Get,
 	)
 
+	private.GET(
+		"/roles/:id/permissions",
+		middleware.RequirePermission(rbac, "roles.read"),
+		rolesH.GetPermissions,
+	)
+
 	private.PATCH(
 		"/roles/:id",
 		middleware.RequirePermission(rbac, "roles.update"),

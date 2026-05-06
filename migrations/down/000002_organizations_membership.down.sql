@@ -1,2 +1,4 @@
-DROP TABLE IF EXISTS organization_members;
-DROP TABLE IF EXISTS organizations;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS fk_users_branch;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS fk_users_company;
+DROP TABLE IF EXISTS branches;
+DROP TABLE IF EXISTS companies;

@@ -6,7 +6,6 @@ import (
 	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
 	"github.com/abrahamVado/go-golem.mx/internal/response"
 	"github.com/abrahamVado/go-golem.mx/internal/tenancy"
-	"github.com/google/uuid"
 	"github.com/gin-gonic/gin"
 )
 
@@ -46,51 +45,8 @@ func (h *Handler) Create(c *gin.Context) {
 	response.Created(c, user)
 }
 func (h *Handler) Update(c *gin.Context) {
-	userID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.BadRequest(c, "Invalid user id")
-		return
-	}
-
-	var req UpdateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid user payload")
-		return
-	}
-
-	user, err := h.svc.Update(tenancy.CompanyID(c), userID, req)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrUserNotFound):
-			response.NotFound(c, err.Error())
-		case errors.Is(err, ErrUserEmailRequired), errors.Is(err, ErrUserNameRequired), errors.Is(err, ErrUserRoleInvalid):
-			response.BadRequest(c, err.Error())
-		case errors.Is(err, ErrUserEmailExists):
-			response.Conflict(c, err.Error())
-		default:
-			response.Internal(c, "Failed to update user")
-		}
-		return
-	}
-
-	response.OK(c, user)
+	response.OK(c, gin.H{"id": c.Param("id"), "module": "users", "status": "updated"})
 }
 func (h *Handler) Delete(c *gin.Context) {
-	userID, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		response.BadRequest(c, "Invalid user id")
-		return
-	}
-
-	if err := h.svc.Delete(tenancy.CompanyID(c), userID); err != nil {
-		switch {
-		case errors.Is(err, ErrUserNotFound):
-			response.NotFound(c, err.Error())
-		default:
-			response.Internal(c, "Failed to delete user")
-		}
-		return
-	}
-
 	response.OK(c, gin.H{"id": c.Param("id"), "module": "users", "status": "deleted"})
 }

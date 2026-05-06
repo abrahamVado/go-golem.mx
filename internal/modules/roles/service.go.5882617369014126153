@@ -1,0 +1,62 @@
+package roles
+
+import (
+	"errors"
+	"strings"
+
+	"github.com/google/uuid"
+)
+
+var (
+	ErrRoleNameRequired        = errors.New("role name is required")
+	ErrRoleNameExists          = errors.New("a role with this name already exists")
+	ErrRolePermissionInvalid   = errors.New("one or more selected permissions are invalid")
+)
+
+type Service struct{ repo *Repository }
+
+func NewService(repo *Repository) *Service { return &Service{repo: repo} }
+
+func (s *Service) List(companyID uuid.UUID) ([]RoleSummary, error) {
+	return s.repo.List(companyID)
+}
+
+func (s *Service) Create(companyID uuid.UUID, req CreateRequest) (RoleSummary, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return RoleSummary{}, ErrRoleNameRequired
+	}
+
+	exists, err := s.repo.NameExists(companyID, name)
+	if err != nil {
+		return RoleSummary{}, err
+	}
+	if exists {
+		return RoleSummary{}, ErrRoleNameExists
+	}
+
+	permissionIDs := make([]uuid.UUID, 0, len(req.PermissionIDs))
+	for _, raw := range req.PermissionIDs {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return RoleSummary{}, ErrRolePermissionInvalid
+		}
+		permissionIDs = append(permissionIDs, id)
+	}
+
+	if len(permissionIDs) > 0 {
+		valid, err := s.repo.CountValidPermissions(permissionIDs)
+		if err != nil {
+			return RoleSummary{}, err
+		}
+		if valid != len(permissionIDs) {
+			return RoleSummary{}, ErrRolePermissionInvalid
+		}
+	}
+
+	return s.repo.Create(companyID, name, strings.TrimSpace(req.Description), permissionIDs)
+}

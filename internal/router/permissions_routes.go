@@ -1,0 +1,26 @@
+package router
+
+import (
+	"github.com/abrahamVado/go-golem.mx/internal/middleware"
+	permissions "github.com/abrahamVado/go-golem.mx/internal/modules/permissions"
+	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
+	"github.com/gin-gonic/gin"
+)
+
+func registerPermissionRoutes(
+	private *gin.RouterGroup,
+	rbac *rbacmod.Service,
+	permissionsH *permissions.Handler,
+) {
+	private.GET(
+		"/permissions",
+		middleware.RequirePermission(rbac, "roles.read"),
+		permissionsH.List,
+	)
+
+	private.POST(
+		"/permissions",
+		middleware.RequirePermission(rbac, "roles.create"),
+		permissionsH.Create,
+	)
+}
