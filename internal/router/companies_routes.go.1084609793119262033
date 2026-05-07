@@ -1,10 +1,10 @@
 package router
 
 import (
+	"github.com/gin-gonic/gin"
 	"github.com/abrahamVado/go-golem.mx/internal/middleware"
 	companies "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
 	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
-	"github.com/gin-gonic/gin"
 )
 
 func registerCompanyRoutes(

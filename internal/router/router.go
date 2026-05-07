@@ -6,6 +6,7 @@ import (
 	"github.com/abrahamVado/go-golem.mx/internal/middleware"
 	authmod "github.com/abrahamVado/go-golem.mx/internal/modules/auth"
 	companiesmod "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
+	dashboardmod "github.com/abrahamVado/go-golem.mx/internal/modules/dashboard"
 	permissionsmod "github.com/abrahamVado/go-golem.mx/internal/modules/permissions"
 	projectsmod "github.com/abrahamVado/go-golem.mx/internal/modules/projects"
 	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
@@ -71,10 +72,15 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 	)
 	registerCompanyRoutes(private, rbacService, companiesH)
 
+	dashboardH := dashboardmod.NewHandler(
+		dashboardmod.NewService(db),
+	)
+	dashboardmod.RegisterRoutes(private, rbacService, dashboardH)
+
 	projectsH := projectsmod.NewHandler(
 		projectsmod.NewService(projectsmod.NewRepository(db)),
 	)
-	projectsmod.RegisterRoutes(private, projectsH)
+	projectsmod.RegisterRoutes(private, rbacService, projectsH)
 
 	return r
 }

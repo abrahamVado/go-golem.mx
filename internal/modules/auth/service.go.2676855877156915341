@@ -79,13 +79,13 @@ func NewService(r *Repository, cfg config.Config) *Service {
 //
 // Flow:
 //
-//  1. Normalize email
-//  2. Find user by email
-//  3. Verify password hash
-//  4. Issue short-lived access JWT
-//  5. Generate opaque refresh token
-//  6. Store only refresh token hash
-//  7. Return access token + raw refresh token
+//   1. Normalize email
+//   2. Find user by email
+//   3. Verify password hash
+//   4. Issue short-lived access JWT
+//   5. Generate opaque refresh token
+//   6. Store only refresh token hash
+//   7. Return access token + raw refresh token
 //
 // Security notes:
 //
@@ -93,6 +93,7 @@ func NewService(r *Repository, cfg config.Config) *Service {
 //   - Never store raw refresh tokens.
 //   - Always audit failed and successful login attempts later.
 //   - Consider account lockout after repeated failures.
+//
 func (s *Service) Login(
 	email string,
 	password string,
@@ -157,13 +158,13 @@ func (s *Service) Login(
 //
 // Flow:
 //
-//  1. Hash incoming refresh token
-//  2. Find stored token by hash
-//  3. Validate token is active
-//  4. Issue new access token
-//  5. Generate new refresh token
-//  6. Store new refresh token hash
-//  7. Revoke old refresh token and link replacement
+//   1. Hash incoming refresh token
+//   2. Find stored token by hash
+//   3. Validate token is active
+//   4. Issue new access token
+//   5. Generate new refresh token
+//   6. Store new refresh token hash
+//   7. Revoke old refresh token and link replacement
 //
 // Security notes:
 //
@@ -171,6 +172,7 @@ func (s *Service) Login(
 //   - Old token must be revoked after successful rotation.
 //   - Reuse of a revoked refresh token should be treated as suspicious.
 //   - Raw refresh tokens must never be stored.
+//
 func (s *Service) Refresh(
 	oldToken string,
 	ip string,
@@ -248,6 +250,7 @@ func (s *Service) Refresh(
 //   - revoke refresh token
 //   - clear refresh cookie in handler
 //   - audit logout event
+//
 func (s *Service) Logout(refresh string) error {
 	if refresh == "" {
 		return nil
@@ -262,13 +265,13 @@ func (s *Service) Logout(refresh string) error {
 //
 // Expected future transaction:
 //
-//  1. Create company
-//  2. Create owner user
-//  3. Hash owner password
-//  4. Create or attach Owner role
-//  5. Assign owner role to user
-//  6. Seed default settings
-//  7. Commit transaction
+//   1. Create company
+//   2. Create owner user
+//   3. Hash owner password
+//   4. Create or attach Owner role
+//   5. Assign owner role to user
+//   6. Seed default settings
+//   7. Commit transaction
 //
 // This must be atomic.
 // If one step fails, the whole registration must roll back.
@@ -366,6 +369,7 @@ func (s *Service) Recover(email string) error {
 //   - update user password
 //   - revoke reset token
 //   - revoke existing refresh sessions
+//
 func (s *Service) Reset(token string, password string) error {
 	return nil
 }

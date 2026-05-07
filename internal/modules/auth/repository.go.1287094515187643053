@@ -35,16 +35,16 @@ import (
 //
 // TokenHash:
 //
-//	SHA-256 hash of the raw refresh token.
+//   SHA-256 hash of the raw refresh token.
 //
 // RevokedAt:
 //
-//	nil means token is still active.
-//	non-nil means token was revoked.
+//   nil means token is still active.
+//   non-nil means token was revoked.
 //
 // ReplacedByTokenHash:
 //
-//	points to the next token hash during refresh-token rotation.
+//   points to the next token hash during refresh-token rotation.
 type RefreshToken struct {
 	ID uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
 
@@ -82,7 +82,8 @@ func NewRepository(db *gorm.DB) *Repository {
 //
 // Recommended DB index:
 //
-//	CREATE INDEX idx_users_email_status ON users(email, status);
+//   CREATE INDEX idx_users_email_status ON users(email, status);
+//
 func (r *Repository) FindUserByEmail(email string) (users.User, error) {
 	var user users.User
 
@@ -105,6 +106,7 @@ func (r *Repository) FindUserByEmail(email string) (users.User, error) {
 //   - TokenHash must be a hash, not the raw token.
 //   - ExpiresAt must be set by the service.
 //   - IP/UserAgent help with audit and suspicious-session detection.
+//
 func (r *Repository) SaveRefreshToken(token *RefreshToken) error {
 	return r.DB.Create(token).Error
 }
@@ -122,6 +124,7 @@ func (r *Repository) SaveRefreshToken(token *RefreshToken) error {
 //   - expired token reuse
 //   - revoked token reuse
 //   - replay of rotated tokens
+//
 func (r *Repository) FindRefreshToken(hash string) (RefreshToken, error) {
 	var token RefreshToken
 
@@ -147,8 +150,9 @@ func (r *Repository) FindRefreshToken(hash string) (RefreshToken, error) {
 //
 // replacedBy:
 //
-//	nil during logout
-//	new token hash during rotation
+//   nil during logout
+//   new token hash during rotation
+//
 func (r *Repository) RevokeRefreshToken(
 	hash string,
 	replacedBy *string,

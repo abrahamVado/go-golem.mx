@@ -5,8 +5,8 @@ import (
 
 	"github.com/abrahamVado/go-golem.mx/internal/response"
 	"github.com/abrahamVado/go-golem.mx/internal/tenancy"
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gin-gonic/gin"
 )
 
 type Handler struct{ svc *Service }

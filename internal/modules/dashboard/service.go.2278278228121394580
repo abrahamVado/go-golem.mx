@@ -14,16 +14,16 @@ type Service struct {
 func NewService(db *gorm.DB) *Service { return &Service{db: db} }
 
 type Summary struct {
-	CompanyID          uuid.UUID         `json:"company_id"`
-	GeneratedAt        string            `json:"generated_at"`
-	ProjectCount       int64             `json:"project_count"`
-	TaskCount          int64             `json:"task_count"`
-	TeamMemberCount    int64             `json:"team_member_count"`
-	CompletedTaskCount int64             `json:"completed_task_count"`
-	CompletionRate     float64           `json:"completion_rate"`
-	TaskStatus         []StatusMetric    `json:"task_status"`
-	ProjectActivity    []ProjectActivity `json:"project_activity"`
-	RecentProjects     []RecentProject   `json:"recent_projects"`
+	CompanyID         uuid.UUID            `json:"company_id"`
+	GeneratedAt       string               `json:"generated_at"`
+	ProjectCount      int64                `json:"project_count"`
+	TaskCount         int64                `json:"task_count"`
+	TeamMemberCount   int64                `json:"team_member_count"`
+	CompletedTaskCount int64               `json:"completed_task_count"`
+	CompletionRate    float64              `json:"completion_rate"`
+	TaskStatus        []StatusMetric       `json:"task_status"`
+	ProjectActivity   []ProjectActivity    `json:"project_activity"`
+	RecentProjects    []RecentProject      `json:"recent_projects"`
 }
 
 type StatusMetric struct {

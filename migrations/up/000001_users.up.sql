@@ -6,6 +6,7 @@ CREATE TABLE users (
     branch_id UUID NULL,
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
+    avatar_url TEXT NULL,
     password_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active',
     failed_login_count INTEGER NOT NULL DEFAULT 0,

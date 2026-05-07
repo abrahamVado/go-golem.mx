@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/abrahamVado/go-golem.mx/internal/middleware"
+	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
 	"github.com/abrahamVado/go-golem.mx/internal/modules/users"
 	"github.com/abrahamVado/go-golem.mx/internal/response"
 	"github.com/abrahamVado/go-golem.mx/internal/tenancy"
@@ -242,20 +244,20 @@ type taskHydrated struct {
 	TimeEntries []taskTimeEntryDTO
 }
 
-func RegisterRoutes(private *gin.RouterGroup, h *Handler) {
-	private.GET("/teams", h.ListTeams)
-	private.GET("/teams/:id/projects", h.ListProjectsForTeam)
-	private.GET("/teams/:id/members", h.ListTeamMembers)
-	private.GET("/projects", h.ListProjects)
-	private.POST("/projects", h.CreateProject)
-	private.GET("/projects/:id/board", h.GetBoard)
-	private.POST("/projects/:id/tasks", h.CreateTask)
-	private.POST("/projects/:id/board/columns", h.CreateColumn)
-	private.DELETE("/projects/:id/board/columns/:columnId", h.DeleteColumn)
-	private.GET("/tasks/:id", h.GetTask)
-	private.PUT("/tasks/:id", h.UpdateTask)
-	private.DELETE("/tasks/:id", h.DeleteTask)
-	private.PATCH("/tasks/:id/move", h.MoveTask)
+func RegisterRoutes(private *gin.RouterGroup, rbac *rbacmod.Service, h *Handler) {
+	private.GET("/teams", middleware.RequirePermission(rbac, "organization:view"), h.ListTeams)
+	private.GET("/teams/:id/projects", middleware.RequirePermission(rbac, "project:view"), h.ListProjectsForTeam)
+	private.GET("/teams/:id/members", middleware.RequirePermission(rbac, "organization:view"), h.ListTeamMembers)
+	private.GET("/projects", middleware.RequirePermission(rbac, "project:view"), h.ListProjects)
+	private.POST("/projects", middleware.RequirePermission(rbac, "project:create"), h.CreateProject)
+	private.GET("/projects/:id/board", middleware.RequirePermission(rbac, "project:view"), h.GetBoard)
+	private.POST("/projects/:id/tasks", middleware.RequirePermission(rbac, "task:create"), h.CreateTask)
+	private.POST("/projects/:id/board/columns", middleware.RequirePermission(rbac, "project:update"), h.CreateColumn)
+	private.DELETE("/projects/:id/board/columns/:columnId", middleware.RequirePermission(rbac, "project:update"), h.DeleteColumn)
+	private.GET("/tasks/:id", middleware.RequirePermission(rbac, "task:view"), h.GetTask)
+	private.PUT("/tasks/:id", middleware.RequirePermission(rbac, "task:update"), h.UpdateTask)
+	private.DELETE("/tasks/:id", middleware.RequirePermission(rbac, "task:delete"), h.DeleteTask)
+	private.PATCH("/tasks/:id/move", middleware.RequirePermission(rbac, "task:update"), h.MoveTask)
 }
 
 func (h *Handler) ListTeams(c *gin.Context) {

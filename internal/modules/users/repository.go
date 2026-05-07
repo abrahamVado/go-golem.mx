@@ -13,6 +13,7 @@ type UserSummary struct {
 	ID        uuid.UUID `json:"id"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
+	AvatarURL string    `json:"avatar_url,omitempty"`
 	Status    string    `json:"status"`
 	RoleNames []string  `json:"role_names"`
 }
@@ -199,6 +200,7 @@ func (r *Repository) enrichRoleNames(users []User) ([]UserSummary, error) {
 			ID:        user.ID,
 			Email:     user.Email,
 			Name:      user.Name,
+			AvatarURL: user.AvatarURL,
 			Status:    user.Status,
 			RoleNames: uniqueStrings(roleNamesByUser[user.ID]),
 		})

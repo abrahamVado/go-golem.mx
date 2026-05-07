@@ -98,15 +98,7 @@ func (h *Handler) Register(c *gin.Context) {
 	// Currently scaffolded in the service.
 	_, err := h.svc.Register(req)
 	if err != nil {
-		switch {
-		case errors.Is(err, ErrCompanyNameRequired),
-			errors.Is(err, ErrRegisterNameRequired),
-			errors.Is(err, ErrRegisterEmailExists),
-			errors.Is(err, ErrInvalidCredentials):
-			response.BadRequest(c, err.Error())
-		default:
-			response.BadRequest(c, err.Error())
-		}
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -227,7 +219,7 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 //
 // Source:
 //
-//	tenancy context injected by middleware.RequireAuth().
+//   tenancy context injected by middleware.RequireAuth().
 func (h *Handler) Me(c *gin.Context) {
 	me, err := h.svc.Me(tenancy.CompanyID(c), tenancy.UserID(c))
 	if err != nil {

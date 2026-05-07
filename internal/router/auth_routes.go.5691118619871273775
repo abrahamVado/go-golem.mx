@@ -68,6 +68,7 @@ import (
 //   - Login attempt throttling
 //   - IP reputation checks
 //   - Device fingerprinting
+//
 func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 
 	// -------------------------------------------------------------------------
@@ -154,7 +155,7 @@ func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 //
 // Middleware expected:
 //
-//	RequireAuth()
+//   RequireAuth()
 //
 // This middleware must:
 //
@@ -172,6 +173,7 @@ func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 //   - Device management
 //   - MFA / 2FA
 //   - Security events
+//
 func registerPrivateAuthRoutes(private *gin.RouterGroup, authH *auth.Handler) {
 
 	// -------------------------------------------------------------------------

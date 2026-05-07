@@ -227,7 +227,7 @@ func (h *Handler) ResetPassword(c *gin.Context) {
 //
 // Source:
 //
-//	tenancy context injected by middleware.RequireAuth().
+//   tenancy context injected by middleware.RequireAuth().
 func (h *Handler) Me(c *gin.Context) {
 	me, err := h.svc.Me(tenancy.CompanyID(c), tenancy.UserID(c))
 	if err != nil {

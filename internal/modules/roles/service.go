@@ -133,3 +133,15 @@ func (s *Service) ListPermissions(companyID, roleID uuid.UUID) ([]permissionsmod
 
 	return s.repo.ListPermissions(companyID, roleID)
 }
+
+func (s *Service) Delete(companyID, roleID uuid.UUID) error {
+	exists, err := s.repo.RoleExists(companyID, roleID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrRoleNotFound
+	}
+
+	return s.repo.Delete(companyID, roleID)
+}
