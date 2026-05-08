@@ -1,4 +1,4 @@
-module github.com/abrahamVado/go-golem.mx
+module github.com/abrahamVado/go-paladin.mx
 
 go 1.26.0
 

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
-	companiesmod "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
-	rolesmod "github.com/abrahamVado/go-golem.mx/internal/modules/roles"
-	"github.com/abrahamVado/go-golem.mx/internal/modules/users"
+	companiesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/companies"
+	rolesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/roles"
+	"github.com/abrahamVado/go-paladin.mx/internal/modules/users"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

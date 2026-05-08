@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
-	"github.com/abrahamVado/go-golem.mx/internal/platform/database"
-	"github.com/abrahamVado/go-golem.mx/seeders"
+	"github.com/abrahamVado/go-paladin.mx/internal/platform/config"
+	"github.com/abrahamVado/go-paladin.mx/internal/platform/database"
+	"github.com/abrahamVado/go-paladin.mx/seeders"
 )
 
 //
@@ -30,7 +30,7 @@ import (
 //
 // Docker usage:
 //
-//   docker exec -it golem-api ./seed
+//   docker exec -it paladin-api ./seed
 //
 // Production rule:
 //

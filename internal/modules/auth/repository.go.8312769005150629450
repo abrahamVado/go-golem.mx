@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/abrahamVado/go-golem.mx/internal/modules/users"
+	"github.com/abrahamVado/go-paladin.mx/internal/modules/users"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )

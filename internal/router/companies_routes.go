@@ -1,9 +1,9 @@
 package router
 
 import (
-	"github.com/abrahamVado/go-golem.mx/internal/middleware"
-	companies "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
-	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
+	"github.com/abrahamVado/go-paladin.mx/internal/middleware"
+	companies "github.com/abrahamVado/go-paladin.mx/internal/modules/companies"
+	rbacmod "github.com/abrahamVado/go-paladin.mx/internal/modules/rbac"
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,8 +1,8 @@
 package audit
 
 import (
-	"github.com/abrahamVado/go-golem.mx/internal/response"
-	"github.com/abrahamVado/go-golem.mx/internal/tenancy"
+	"github.com/abrahamVado/go-paladin.mx/internal/response"
+	"github.com/abrahamVado/go-paladin.mx/internal/tenancy"
 	"github.com/gin-gonic/gin"
 )
 

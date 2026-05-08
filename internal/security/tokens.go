@@ -34,7 +34,7 @@ func NewAccessToken(
 		BranchID:  branchID,
 		TokenType: "access",
 		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    "go-golem.mx",
+			Issuer:    "go-paladin.mx",
 			Subject:   userID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),

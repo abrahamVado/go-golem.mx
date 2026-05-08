@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	companiesmod "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
-	rolesmod "github.com/abrahamVado/go-golem.mx/internal/modules/roles"
-	"github.com/abrahamVado/go-golem.mx/internal/modules/users"
-	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
-	"github.com/abrahamVado/go-golem.mx/internal/security"
+	companiesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/companies"
+	rolesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/roles"
+	"github.com/abrahamVado/go-paladin.mx/internal/modules/users"
+	"github.com/abrahamVado/go-paladin.mx/internal/platform/config"
+	"github.com/abrahamVado/go-paladin.mx/internal/security"
 	"github.com/google/uuid"
 )
 

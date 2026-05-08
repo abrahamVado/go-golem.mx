@@ -77,7 +77,7 @@ func SecureHeaders() gin.HandlerFunc {
 //
 // Example:
 //
-//   https://app.golem.mx
+//   https://app.paladin.mx
 //
 // Security notes:
 //

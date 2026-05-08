@@ -6,14 +6,14 @@ import (
 	"strings"
 	"time"
 
-	companiesmod "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
-	permissionsmod "github.com/abrahamVado/go-golem.mx/internal/modules/permissions"
-	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
-	projectsmod "github.com/abrahamVado/go-golem.mx/internal/modules/projects"
-	rolesmod "github.com/abrahamVado/go-golem.mx/internal/modules/roles"
-	usersmod "github.com/abrahamVado/go-golem.mx/internal/modules/users"
-	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
-	"github.com/abrahamVado/go-golem.mx/internal/security"
+	companiesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/companies"
+	permissionsmod "github.com/abrahamVado/go-paladin.mx/internal/modules/permissions"
+	rbacmod "github.com/abrahamVado/go-paladin.mx/internal/modules/rbac"
+	projectsmod "github.com/abrahamVado/go-paladin.mx/internal/modules/projects"
+	rolesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/roles"
+	usersmod "github.com/abrahamVado/go-paladin.mx/internal/modules/users"
+	"github.com/abrahamVado/go-paladin.mx/internal/platform/config"
+	"github.com/abrahamVado/go-paladin.mx/internal/security"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -201,12 +201,12 @@ func ensureDemoUsers(tx *gorm.DB, companyID, ownerID uuid.UUID, passwordHash str
 		Name  string
 	}{
 		{Email: "admin@example.com", Name: "Platform Admin"},
-		{Email: "maya@golem.local", Name: "Maya Chen"},
-		{Email: "diego@golem.local", Name: "Diego Rivera"},
-		{Email: "sofia@golem.local", Name: "Sofia Torres"},
-		{Email: "leo@golem.local", Name: "Leo Alvarez"},
-		{Email: "nina@golem.local", Name: "Nina Patel"},
-		{Email: "omar@golem.local", Name: "Omar Haddad"},
+		{Email: "maya@paladin.local", Name: "Maya Chen"},
+		{Email: "diego@paladin.local", Name: "Diego Rivera"},
+		{Email: "sofia@paladin.local", Name: "Sofia Torres"},
+		{Email: "leo@paladin.local", Name: "Leo Alvarez"},
+		{Email: "nina@paladin.local", Name: "Nina Patel"},
+		{Email: "omar@paladin.local", Name: "Omar Haddad"},
 	}
 
 	users := make(map[string]usersmod.User, len(specs))
@@ -399,9 +399,9 @@ func ensureProjectBoard(tx *gorm.DB, companyID, projectID uuid.UUID) error {
 
 func ensureProjectMembers(tx *gorm.DB, ownerID uuid.UUID, users map[string]usersmod.User, projects map[string]projectsmod.Project) error {
 	assignments := map[string][]string{
-		"OPS": {"admin@example.com", "maya@golem.local", "sofia@golem.local", "leo@golem.local"},
-		"WEB": {"admin@example.com", "diego@golem.local", "nina@golem.local", "sofia@golem.local"},
-		"API": {"admin@example.com", "omar@golem.local", "maya@golem.local", "leo@golem.local"},
+		"OPS": {"admin@example.com", "maya@paladin.local", "sofia@paladin.local", "leo@paladin.local"},
+		"WEB": {"admin@example.com", "diego@paladin.local", "nina@paladin.local", "sofia@paladin.local"},
+		"API": {"admin@example.com", "omar@paladin.local", "maya@paladin.local", "leo@paladin.local"},
 	}
 
 	for projectKey, emails := range assignments {
@@ -439,23 +439,23 @@ func ensureProjectMembers(tx *gorm.DB, ownerID uuid.UUID, users map[string]users
 func ensureDemoTasks(tx *gorm.DB, companyID, ownerID uuid.UUID, users map[string]usersmod.User, projects map[string]projectsmod.Project) error {
 	taskSpecs := map[string][]demoTaskSpec{
 		"OPS": {
-			{Title: "Publish onboarding checklist", StatusKey: "done", Priority: "high", EstimatedMinutes: 90, StoryPoints: 3, ColumnKey: "done", AssigneeEmail: "maya@golem.local", DaysAgo: 6},
-			{Title: "Refresh support handoff SOP", StatusKey: "in_review", Priority: "medium", EstimatedMinutes: 120, StoryPoints: 2, ColumnKey: "in_review", AssigneeEmail: "sofia@golem.local", DaysAgo: 2},
-			{Title: "Audit internal admin permissions", StatusKey: "in_progress", Priority: "high", EstimatedMinutes: 180, StoryPoints: 5, ColumnKey: "in_progress", AssigneeEmail: "leo@golem.local", DaysAgo: 1},
-			{Title: "Queue hiring docs translation", StatusKey: "backlog", Priority: "low", EstimatedMinutes: 60, StoryPoints: 1, ColumnKey: "backlog", AssigneeEmail: "maya@golem.local", DaysAgo: 0},
+			{Title: "Publish onboarding checklist", StatusKey: "done", Priority: "high", EstimatedMinutes: 90, StoryPoints: 3, ColumnKey: "done", AssigneeEmail: "maya@paladin.local", DaysAgo: 6},
+			{Title: "Refresh support handoff SOP", StatusKey: "in_review", Priority: "medium", EstimatedMinutes: 120, StoryPoints: 2, ColumnKey: "in_review", AssigneeEmail: "sofia@paladin.local", DaysAgo: 2},
+			{Title: "Audit internal admin permissions", StatusKey: "in_progress", Priority: "high", EstimatedMinutes: 180, StoryPoints: 5, ColumnKey: "in_progress", AssigneeEmail: "leo@paladin.local", DaysAgo: 1},
+			{Title: "Queue hiring docs translation", StatusKey: "backlog", Priority: "low", EstimatedMinutes: 60, StoryPoints: 1, ColumnKey: "backlog", AssigneeEmail: "maya@paladin.local", DaysAgo: 0},
 		},
 		"WEB": {
-			{Title: "Animate proof section cards", StatusKey: "done", Priority: "medium", EstimatedMinutes: 120, StoryPoints: 2, ColumnKey: "done", AssigneeEmail: "diego@golem.local", DaysAgo: 5},
-			{Title: "Hook dashboard screenshots", StatusKey: "done", Priority: "medium", EstimatedMinutes: 45, StoryPoints: 1, ColumnKey: "done", AssigneeEmail: "nina@golem.local", DaysAgo: 3},
-			{Title: "Polish metrics widget layout", StatusKey: "in_progress", Priority: "high", EstimatedMinutes: 150, StoryPoints: 3, ColumnKey: "in_progress", AssigneeEmail: "sofia@golem.local", DaysAgo: 1},
-			{Title: "Review mobile widget spacing", StatusKey: "todo", Priority: "medium", EstimatedMinutes: 60, StoryPoints: 2, ColumnKey: "todo", AssigneeEmail: "diego@golem.local", DaysAgo: 0},
-			{Title: "Draft pricing FAQ block", StatusKey: "backlog", Priority: "low", EstimatedMinutes: 90, StoryPoints: 1, ColumnKey: "backlog", AssigneeEmail: "nina@golem.local", DaysAgo: 0},
+			{Title: "Animate proof section cards", StatusKey: "done", Priority: "medium", EstimatedMinutes: 120, StoryPoints: 2, ColumnKey: "done", AssigneeEmail: "diego@paladin.local", DaysAgo: 5},
+			{Title: "Hook dashboard screenshots", StatusKey: "done", Priority: "medium", EstimatedMinutes: 45, StoryPoints: 1, ColumnKey: "done", AssigneeEmail: "nina@paladin.local", DaysAgo: 3},
+			{Title: "Polish metrics widget layout", StatusKey: "in_progress", Priority: "high", EstimatedMinutes: 150, StoryPoints: 3, ColumnKey: "in_progress", AssigneeEmail: "sofia@paladin.local", DaysAgo: 1},
+			{Title: "Review mobile widget spacing", StatusKey: "todo", Priority: "medium", EstimatedMinutes: 60, StoryPoints: 2, ColumnKey: "todo", AssigneeEmail: "diego@paladin.local", DaysAgo: 0},
+			{Title: "Draft pricing FAQ block", StatusKey: "backlog", Priority: "low", EstimatedMinutes: 90, StoryPoints: 1, ColumnKey: "backlog", AssigneeEmail: "nina@paladin.local", DaysAgo: 0},
 		},
 		"API": {
-			{Title: "Fix dashboard audit query ambiguity", StatusKey: "done", Priority: "high", EstimatedMinutes: 50, StoryPoints: 2, ColumnKey: "done", AssigneeEmail: "omar@golem.local", DaysAgo: 4},
-			{Title: "Seed richer audit trails", StatusKey: "in_review", Priority: "high", EstimatedMinutes: 100, StoryPoints: 3, ColumnKey: "in_review", AssigneeEmail: "maya@golem.local", DaysAgo: 1},
-			{Title: "Expose member workload endpoint", StatusKey: "in_progress", Priority: "medium", EstimatedMinutes: 180, StoryPoints: 5, ColumnKey: "in_progress", AssigneeEmail: "leo@golem.local", DaysAgo: 2},
-			{Title: "Backfill archived task telemetry", StatusKey: "archived", Priority: "low", EstimatedMinutes: 30, StoryPoints: 1, ColumnKey: "done", AssigneeEmail: "omar@golem.local", DaysAgo: 8},
+			{Title: "Fix dashboard audit query ambiguity", StatusKey: "done", Priority: "high", EstimatedMinutes: 50, StoryPoints: 2, ColumnKey: "done", AssigneeEmail: "omar@paladin.local", DaysAgo: 4},
+			{Title: "Seed richer audit trails", StatusKey: "in_review", Priority: "high", EstimatedMinutes: 100, StoryPoints: 3, ColumnKey: "in_review", AssigneeEmail: "maya@paladin.local", DaysAgo: 1},
+			{Title: "Expose member workload endpoint", StatusKey: "in_progress", Priority: "medium", EstimatedMinutes: 180, StoryPoints: 5, ColumnKey: "in_progress", AssigneeEmail: "leo@paladin.local", DaysAgo: 2},
+			{Title: "Backfill archived task telemetry", StatusKey: "archived", Priority: "low", EstimatedMinutes: 30, StoryPoints: 1, ColumnKey: "done", AssigneeEmail: "omar@paladin.local", DaysAgo: 8},
 		},
 	}
 
@@ -583,23 +583,23 @@ func ensureAuditLogs(tx *gorm.DB, companyID uuid.UUID, users map[string]usersmod
 		DaysAgo    int
 		Hour       int
 	}{
-		{ActorEmail: "maya@golem.local", Action: "login", TargetType: "session", DaysAgo: 6, Hour: 9},
-		{ActorEmail: "diego@golem.local", Action: "create", TargetType: "task", ProjectKey: "WEB", DaysAgo: 6, Hour: 10},
-		{ActorEmail: "sofia@golem.local", Action: "update", TargetType: "task", ProjectKey: "OPS", DaysAgo: 5, Hour: 11},
-		{ActorEmail: "leo@golem.local", Action: "assign", TargetType: "task", ProjectKey: "API", DaysAgo: 5, Hour: 13},
-		{ActorEmail: "nina@golem.local", Action: "complete", TargetType: "task", ProjectKey: "WEB", DaysAgo: 4, Hour: 15},
-		{ActorEmail: "omar@golem.local", Action: "refresh", TargetType: "api_key", ProjectKey: "API", DaysAgo: 4, Hour: 18},
-		{ActorEmail: "maya@golem.local", Action: "update", TargetType: "project", ProjectKey: "OPS", DaysAgo: 3, Hour: 9},
-		{ActorEmail: "sofia@golem.local", Action: "complete", TargetType: "task", ProjectKey: "OPS", DaysAgo: 3, Hour: 16},
-		{ActorEmail: "diego@golem.local", Action: "update", TargetType: "task", ProjectKey: "WEB", DaysAgo: 2, Hour: 11},
-		{ActorEmail: "leo@golem.local", Action: "create", TargetType: "comment", ProjectKey: "API", DaysAgo: 2, Hour: 14},
-		{ActorEmail: "omar@golem.local", Action: "update", TargetType: "task", ProjectKey: "API", DaysAgo: 1, Hour: 10},
-		{ActorEmail: "nina@golem.local", Action: "complete", TargetType: "task", ProjectKey: "WEB", DaysAgo: 1, Hour: 12},
-		{ActorEmail: "maya@golem.local", Action: "assign", TargetType: "task", ProjectKey: "OPS", DaysAgo: 1, Hour: 17},
-		{ActorEmail: "sofia@golem.local", Action: "login", TargetType: "session", DaysAgo: 0, Hour: 8},
-		{ActorEmail: "diego@golem.local", Action: "create", TargetType: "task", ProjectKey: "WEB", DaysAgo: 0, Hour: 9},
-		{ActorEmail: "leo@golem.local", Action: "update", TargetType: "task", ProjectKey: "API", DaysAgo: 0, Hour: 11},
-		{ActorEmail: "omar@golem.local", Action: "complete", TargetType: "task", ProjectKey: "API", DaysAgo: 0, Hour: 19},
+		{ActorEmail: "maya@paladin.local", Action: "login", TargetType: "session", DaysAgo: 6, Hour: 9},
+		{ActorEmail: "diego@paladin.local", Action: "create", TargetType: "task", ProjectKey: "WEB", DaysAgo: 6, Hour: 10},
+		{ActorEmail: "sofia@paladin.local", Action: "update", TargetType: "task", ProjectKey: "OPS", DaysAgo: 5, Hour: 11},
+		{ActorEmail: "leo@paladin.local", Action: "assign", TargetType: "task", ProjectKey: "API", DaysAgo: 5, Hour: 13},
+		{ActorEmail: "nina@paladin.local", Action: "complete", TargetType: "task", ProjectKey: "WEB", DaysAgo: 4, Hour: 15},
+		{ActorEmail: "omar@paladin.local", Action: "refresh", TargetType: "api_key", ProjectKey: "API", DaysAgo: 4, Hour: 18},
+		{ActorEmail: "maya@paladin.local", Action: "update", TargetType: "project", ProjectKey: "OPS", DaysAgo: 3, Hour: 9},
+		{ActorEmail: "sofia@paladin.local", Action: "complete", TargetType: "task", ProjectKey: "OPS", DaysAgo: 3, Hour: 16},
+		{ActorEmail: "diego@paladin.local", Action: "update", TargetType: "task", ProjectKey: "WEB", DaysAgo: 2, Hour: 11},
+		{ActorEmail: "leo@paladin.local", Action: "create", TargetType: "comment", ProjectKey: "API", DaysAgo: 2, Hour: 14},
+		{ActorEmail: "omar@paladin.local", Action: "update", TargetType: "task", ProjectKey: "API", DaysAgo: 1, Hour: 10},
+		{ActorEmail: "nina@paladin.local", Action: "complete", TargetType: "task", ProjectKey: "WEB", DaysAgo: 1, Hour: 12},
+		{ActorEmail: "maya@paladin.local", Action: "assign", TargetType: "task", ProjectKey: "OPS", DaysAgo: 1, Hour: 17},
+		{ActorEmail: "sofia@paladin.local", Action: "login", TargetType: "session", DaysAgo: 0, Hour: 8},
+		{ActorEmail: "diego@paladin.local", Action: "create", TargetType: "task", ProjectKey: "WEB", DaysAgo: 0, Hour: 9},
+		{ActorEmail: "leo@paladin.local", Action: "update", TargetType: "task", ProjectKey: "API", DaysAgo: 0, Hour: 11},
+		{ActorEmail: "omar@paladin.local", Action: "complete", TargetType: "task", ProjectKey: "API", DaysAgo: 0, Hour: 19},
 	}
 
 	for _, spec := range logSpecs {
@@ -632,7 +632,7 @@ func ensureAuditLogs(tx *gorm.DB, companyID uuid.UUID, users map[string]usersmod
 			TargetType:  spec.TargetType,
 			TargetID:    targetID,
 			IPAddress:   "127.0.0.1",
-			UserAgent:   "golem-dashboard-seed/1.0",
+			UserAgent:   "paladin-dashboard-seed/1.0",
 			CreatedAt:   timestamp,
 		}
 		if err := tx.Create(&entry).Error; err != nil {

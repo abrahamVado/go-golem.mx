@@ -27,7 +27,7 @@ import (
 //
 // In production:
 //
-//   docker exec -it golem-api ./admin <command>
+//   docker exec -it paladin-api ./admin <command>
 //
 // =====================================================
 //

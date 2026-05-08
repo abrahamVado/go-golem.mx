@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	permissionsmod "github.com/abrahamVado/go-golem.mx/internal/modules/permissions"
+	permissionsmod "github.com/abrahamVado/go-paladin.mx/internal/modules/permissions"
 	"github.com/google/uuid"
 )
 

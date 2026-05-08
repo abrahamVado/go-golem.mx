@@ -1,8 +1,8 @@
 package dashboard
 
 import (
-	"github.com/abrahamVado/go-golem.mx/internal/middleware"
-	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
+	"github.com/abrahamVado/go-paladin.mx/internal/middleware"
+	rbacmod "github.com/abrahamVado/go-paladin.mx/internal/modules/rbac"
 	"github.com/gin-gonic/gin"
 )
 

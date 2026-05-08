@@ -3,7 +3,7 @@ package roles
 import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	permissionsmod "github.com/abrahamVado/go-golem.mx/internal/modules/permissions"
+	permissionsmod "github.com/abrahamVado/go-paladin.mx/internal/modules/permissions"
 )
 
 type Repository struct{ DB *gorm.DB }

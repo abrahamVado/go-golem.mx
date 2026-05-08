@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/abrahamVado/go-golem.mx/internal/security"
+	"github.com/abrahamVado/go-paladin.mx/internal/security"
 	"github.com/google/uuid"
 )
 

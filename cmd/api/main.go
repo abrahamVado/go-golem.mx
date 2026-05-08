@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
-	"github.com/abrahamVado/go-golem.mx/internal/platform/database"
-	"github.com/abrahamVado/go-golem.mx/internal/router"
+	"github.com/abrahamVado/go-paladin.mx/internal/platform/config"
+	"github.com/abrahamVado/go-paladin.mx/internal/platform/database"
+	"github.com/abrahamVado/go-paladin.mx/internal/router"
 )
 
 func main() {
@@ -35,7 +35,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("go-golem.mx API running on :%s", port)
+		log.Printf("go-paladin.mx API running on :%s", port)
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("server failed: %v", err)

@@ -1,4 +1,4 @@
-# golem.mx — Go API (Gin Multi-Tenant SaaS Backend)
+# paladin.mx - Go API (Gin Multi-Tenant SaaS Backend)
 
 Production-ready Go backend built with Gin for a multi-tenant SaaS platform.
 
@@ -141,8 +141,8 @@ make seed
 
 ## CLI
 
-docker exec -it golem-api ./migrate up
-docker exec -it golem-api ./seed
+docker exec -it paladin-api ./migrate up
+docker exec -it paladin-api ./seed
 
 --------------------------------------------------
 
@@ -168,4 +168,4 @@ REFRESH_SECRET=secret
 
 DEBUGGING
 
-docker logs golem-go-api
+docker logs paladin-go-api

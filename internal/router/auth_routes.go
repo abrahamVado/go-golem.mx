@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/abrahamVado/go-golem.mx/internal/modules/auth"
+	"github.com/abrahamVado/go-paladin.mx/internal/modules/auth"
 	"github.com/gin-gonic/gin"
 )
 

@@ -2,9 +2,9 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/abrahamVado/go-golem.mx/internal/middleware"
-	users "github.com/abrahamVado/go-golem.mx/internal/modules/users"
-	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
+	"github.com/abrahamVado/go-paladin.mx/internal/middleware"
+	users "github.com/abrahamVado/go-paladin.mx/internal/modules/users"
+	rbacmod "github.com/abrahamVado/go-paladin.mx/internal/modules/rbac"
 )
 
 func registerUserRoutes(
