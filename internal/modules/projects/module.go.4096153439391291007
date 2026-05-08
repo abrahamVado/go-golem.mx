@@ -154,11 +154,11 @@ type Handler struct{ svc *Service }
 func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
 type projectCreateRequest struct {
-	Name            string                     `json:"name" binding:"required"`
-	Description     string                     `json:"description"`
-	Icon            string                     `json:"icon"`
-	SprintSize      *int                       `json:"sprint_size"`
-	SprintStartDate string                     `json:"sprint_start_date"`
+	Name            string                    `json:"name" binding:"required"`
+	Description     string                    `json:"description"`
+	Icon            string                    `json:"icon"`
+	SprintSize      *int                      `json:"sprint_size"`
+	SprintStartDate string                    `json:"sprint_start_date"`
 	Members         []projectMembershipPayload `json:"members"`
 }
 
@@ -1054,9 +1054,9 @@ func (s *Service) replaceProjectMembers(tx *gorm.DB, companyID, userID uuid.UUID
 			targets[parsed] = role
 		}
 	}
-	if err := tx.Unscoped().Where("project_id = ?", project.ID).Delete(&ProjectMember{}).Error; err != nil {
-		return nil, err
-	}
+		if err := tx.Unscoped().Where("project_id = ?", project.ID).Delete(&ProjectMember{}).Error; err != nil {
+			return nil, err
+		}
 	rows := make([]ProjectMember, 0, len(targets))
 	summaries := make([]projectMemberSummary, 0, len(targets))
 	for memberID, role := range targets {

@@ -8,4 +8,5 @@ import (
 
 func RegisterRoutes(private *gin.RouterGroup, rbac *rbacmod.Service, handler *Handler) {
 	private.GET("/dashboard/summary", middleware.RequirePermission(rbac, "organization:view"), handler.Index)
+	private.GET("/dashboard/system-logs", middleware.RequirePermission(rbac, "organization:view"), handler.SystemLogs)
 }

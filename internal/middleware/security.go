@@ -94,6 +94,7 @@ func CORS(frontend string) gin.HandlerFunc {
 		AllowMethods: []string{
 			"GET",
 			"POST",
+			"PUT",
 			"PATCH",
 			"DELETE",
 			"OPTIONS",

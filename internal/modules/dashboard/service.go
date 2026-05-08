@@ -26,6 +26,24 @@ type Summary struct {
 	RecentProjects     []RecentProject   `json:"recent_projects"`
 }
 
+type SystemLogEntry struct {
+	ID        string `json:"id"`
+	Timestamp string `json:"timestamp"`
+	Action    string `json:"action"`
+	Resource  string `json:"resource"`
+	ActorName string `json:"actor_name,omitempty"`
+	IPAddress string `json:"ip_address,omitempty"`
+	UserAgent string `json:"user_agent,omitempty"`
+	Message   string `json:"message"`
+	Severity  string `json:"severity"`
+}
+
+type SystemLogs struct {
+	CompanyID   uuid.UUID        `json:"company_id"`
+	GeneratedAt string           `json:"generated_at"`
+	Items       []SystemLogEntry `json:"items"`
+}
+
 type StatusMetric struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
@@ -58,6 +76,16 @@ type projectActivityRow struct {
 	Icon        string    `gorm:"column:icon"`
 	CreatedAt   time.Time `gorm:"column:created_at"`
 	Tasks       int64     `gorm:"column:tasks"`
+}
+
+type auditLogRow struct {
+	ID        uuid.UUID `gorm:"column:id"`
+	Action    string    `gorm:"column:action"`
+	Resource  string    `gorm:"column:target_type"`
+	ActorName string    `gorm:"column:actor_name"`
+	IPAddress string    `gorm:"column:ip_address"`
+	UserAgent string    `gorm:"column:user_agent"`
+	CreatedAt time.Time `gorm:"column:created_at"`
 }
 
 func (s *Service) Summary(companyID uuid.UUID) (Summary, error) {
@@ -144,6 +172,49 @@ func (s *Service) Summary(companyID uuid.UUID) (Summary, error) {
 	return summary, nil
 }
 
+func (s *Service) SystemLogs(companyID uuid.UUID, limit int) (SystemLogs, error) {
+	if limit <= 0 {
+		limit = 12
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	payload := SystemLogs{
+		CompanyID:   companyID,
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Items:       []SystemLogEntry{},
+	}
+
+	var rows []auditLogRow
+	if err := s.db.Table("audit_logs").
+		Select("audit_logs.id, audit_logs.action, audit_logs.target_type, COALESCE(users.name, '') AS actor_name, audit_logs.ip_address, audit_logs.user_agent, audit_logs.created_at").
+		Joins("LEFT JOIN users ON users.id = audit_logs.actor_user_id").
+		Where("audit_logs.company_id = ?", companyID).
+		Order("audit_logs.created_at DESC").
+		Limit(limit).
+		Scan(&rows).Error; err != nil {
+		return SystemLogs{}, err
+	}
+
+	payload.Items = make([]SystemLogEntry, 0, len(rows))
+	for _, row := range rows {
+		payload.Items = append(payload.Items, SystemLogEntry{
+			ID:        row.ID.String(),
+			Timestamp: row.CreatedAt.UTC().Format(time.RFC3339),
+			Action:    row.Action,
+			Resource:  row.Resource,
+			ActorName: row.ActorName,
+			IPAddress: row.IPAddress,
+			UserAgent: row.UserAgent,
+			Message:   formatSystemLogMessage(row.Action, row.Resource),
+			Severity:  inferSystemLogSeverity(row.Action),
+		})
+	}
+
+	return payload, nil
+}
+
 func taskStatusLabel(key string) string {
 	switch key {
 	case "backlog":
@@ -163,5 +234,31 @@ func taskStatusLabel(key string) string {
 			return "Unassigned"
 		}
 		return key
+	}
+}
+
+func formatSystemLogMessage(action string, resource string) string {
+	switch {
+	case action == "" && resource == "":
+		return "Audit event recorded"
+	case action == "":
+		return resource + " activity recorded"
+	case resource == "":
+		return action + " event recorded"
+	default:
+		return action + " " + resource
+	}
+}
+
+func inferSystemLogSeverity(action string) string {
+	switch action {
+	case "delete", "revoke", "deny", "lock", "failed_login":
+		return "error"
+	case "update", "assign", "refresh", "rotate":
+		return "warn"
+	case "create", "login", "accept", "complete":
+		return "success"
+	default:
+		return "info"
 	}
 }

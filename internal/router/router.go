@@ -12,6 +12,7 @@ import (
 	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
 	rolesmod "github.com/abrahamVado/go-golem.mx/internal/modules/roles"
 	usersmod "github.com/abrahamVado/go-golem.mx/internal/modules/users"
+	whitelistmod "github.com/abrahamVado/go-golem.mx/internal/modules/whitelist"
 	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
 	"github.com/abrahamVado/go-golem.mx/internal/response"
 	"github.com/gin-gonic/gin"
@@ -46,6 +47,11 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 	)
 
 	registerPublicAuthRoutes(api, authH)
+
+	whitelistH := whitelistmod.NewHandler(
+		whitelistmod.NewService(whitelistmod.NewRepository(db)),
+	)
+	whitelistmod.RegisterRoutes(api, whitelistH)
 
 	private := api.Group("")
 	private.Use(middleware.RequireAuth(cfg.JWTAccessSecret))

@@ -2,11 +2,14 @@ package seeders
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	companiesmod "github.com/abrahamVado/go-golem.mx/internal/modules/companies"
 	permissionsmod "github.com/abrahamVado/go-golem.mx/internal/modules/permissions"
 	rbacmod "github.com/abrahamVado/go-golem.mx/internal/modules/rbac"
+	projectsmod "github.com/abrahamVado/go-golem.mx/internal/modules/projects"
 	rolesmod "github.com/abrahamVado/go-golem.mx/internal/modules/roles"
 	usersmod "github.com/abrahamVado/go-golem.mx/internal/modules/users"
 	"github.com/abrahamVado/go-golem.mx/internal/platform/config"
@@ -51,7 +54,10 @@ func Run(db *gorm.DB, cfg config.Config) error {
 			}).Error; err != nil {
 				return err
 			}
-			return ensureOwnerAccess(tx, company.ID, user.ID)
+			if err := ensureOwnerAccess(tx, company.ID, user.ID); err != nil {
+				return err
+			}
+			return seedDashboardDemoData(tx, cfg, company.ID, user.ID)
 		}
 
 		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -70,9 +76,580 @@ func Run(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 
-		return ensureOwnerAccess(tx, company.ID, user.ID)
+		if err := ensureOwnerAccess(tx, company.ID, user.ID); err != nil {
+			return err
+		}
+
+		return seedDashboardDemoData(tx, cfg, company.ID, user.ID)
 	})
 }
+
+type projectMember struct {
+	ProjectID        uuid.UUID  `gorm:"column:project_id"`
+	UserID           uuid.UUID  `gorm:"column:user_id"`
+	Role             string     `gorm:"column:role"`
+	InvitedByUserID  *uuid.UUID `gorm:"column:invited_by_user_id"`
+	DeletedAt        *time.Time `gorm:"column:deleted_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at"`
+}
+
+func (projectMember) TableName() string { return "project_members" }
+
+type auditLog struct {
+	ID          uuid.UUID  `gorm:"column:id"`
+	CompanyID   uuid.UUID  `gorm:"column:company_id"`
+	ActorUserID *uuid.UUID `gorm:"column:actor_user_id"`
+	ActorType   string     `gorm:"column:actor_type"`
+	Action      string     `gorm:"column:action"`
+	TargetType  string     `gorm:"column:target_type"`
+	TargetID    *uuid.UUID `gorm:"column:target_id"`
+	IPAddress   string     `gorm:"column:ip_address"`
+	UserAgent   string     `gorm:"column:user_agent"`
+	CreatedAt   time.Time  `gorm:"column:created_at"`
+}
+
+func (auditLog) TableName() string { return "audit_logs" }
+
+type taskStatusSeed struct {
+	ID        uuid.UUID `gorm:"column:id"`
+	CompanyID uuid.UUID `gorm:"column:company_id"`
+	StatusKey string    `gorm:"column:status_key"`
+	Name      string    `gorm:"column:name"`
+	Category  string    `gorm:"column:category"`
+	Position  int       `gorm:"column:position"`
+}
+
+func (taskStatusSeed) TableName() string { return "task_statuses" }
+
+type boardColumnSeed struct {
+	ID        uuid.UUID  `gorm:"column:id"`
+	CompanyID uuid.UUID  `gorm:"column:company_id"`
+	BoardID   uuid.UUID  `gorm:"column:board_id"`
+	ColumnKey string     `gorm:"column:column_key"`
+	Title     string     `gorm:"column:title"`
+	Color     string     `gorm:"column:color"`
+	Position  int        `gorm:"column:position"`
+	WIPLimit  *int       `gorm:"column:wip_limit"`
+	DeletedAt *time.Time `gorm:"column:deleted_at"`
+}
+
+func (boardColumnSeed) TableName() string { return "board_columns" }
+
+type taskAssigneeSeed struct {
+	CompanyID        uuid.UUID `gorm:"column:company_id"`
+	TaskID           uuid.UUID `gorm:"column:task_id"`
+	UserID           uuid.UUID `gorm:"column:user_id"`
+	AssignedByUserID uuid.UUID `gorm:"column:assigned_by_user_id"`
+}
+
+func (taskAssigneeSeed) TableName() string { return "task_assignees" }
+
+type demoProjectSpec struct {
+	Key         string
+	Name        string
+	Description string
+	Icon        string
+	SprintSize  int
+}
+
+type demoTaskSpec struct {
+	Title            string
+	StatusKey        string
+	Priority         string
+	EstimatedMinutes int
+	StoryPoints      float64
+	ColumnKey        string
+	AssigneeEmail    string
+	DaysAgo          int
+}
+
+func seedDashboardDemoData(tx *gorm.DB, cfg config.Config, companyID, ownerID uuid.UUID) error {
+	passwordHash, err := security.HashPassword(cfg.DefaultOwnerPassword, cfg.BcryptCost)
+	if err != nil {
+		return err
+	}
+
+	members, err := ensureDemoUsers(tx, companyID, ownerID, passwordHash)
+	if err != nil {
+		return err
+	}
+
+	if err := ensureTaskStatuses(tx, companyID); err != nil {
+		return err
+	}
+
+	projects, err := ensureDemoProjects(tx, companyID, ownerID)
+	if err != nil {
+		return err
+	}
+
+	if err := ensureProjectMembers(tx, ownerID, members, projects); err != nil {
+		return err
+	}
+
+	if err := ensureDemoTasks(tx, companyID, ownerID, members, projects); err != nil {
+		return err
+	}
+
+	return ensureAuditLogs(tx, companyID, members, projects)
+}
+
+func ensureDemoUsers(tx *gorm.DB, companyID, ownerID uuid.UUID, passwordHash string) (map[string]usersmod.User, error) {
+	specs := []struct {
+		Email string
+		Name  string
+	}{
+		{Email: "admin@example.com", Name: "Platform Admin"},
+		{Email: "maya@golem.local", Name: "Maya Chen"},
+		{Email: "diego@golem.local", Name: "Diego Rivera"},
+		{Email: "sofia@golem.local", Name: "Sofia Torres"},
+		{Email: "leo@golem.local", Name: "Leo Alvarez"},
+		{Email: "nina@golem.local", Name: "Nina Patel"},
+		{Email: "omar@golem.local", Name: "Omar Haddad"},
+	}
+
+	users := make(map[string]usersmod.User, len(specs))
+	for _, spec := range specs {
+		var user usersmod.User
+		err := tx.Where("email = ?", strings.ToLower(spec.Email)).First(&user).Error
+		switch {
+		case err == nil:
+			if err := tx.Model(&user).Updates(map[string]any{
+				"company_id":    companyID,
+				"name":          spec.Name,
+				"password_hash": passwordHash,
+				"status":        "active",
+				"deleted_at":    nil,
+			}).Error; err != nil {
+				return nil, err
+			}
+			if err := tx.Where("email = ?", strings.ToLower(spec.Email)).First(&user).Error; err != nil {
+				return nil, err
+			}
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			user = usersmod.User{
+				CompanyID:    companyID,
+				Email:        strings.ToLower(spec.Email),
+				Name:         spec.Name,
+				PasswordHash: passwordHash,
+				Status:       "active",
+			}
+			if err := tx.Create(&user).Error; err != nil {
+				return nil, err
+			}
+		default:
+			return nil, err
+		}
+
+		if err := ensureOwnerAccess(tx, companyID, user.ID); err != nil && user.ID == ownerID {
+			return nil, err
+		}
+
+		users[user.Email] = user
+	}
+
+	return users, nil
+}
+
+func ensureTaskStatuses(tx *gorm.DB, companyID uuid.UUID) error {
+	statuses := []struct {
+		Key      string
+		Name     string
+		Category string
+		Position int
+	}{
+		{Key: "backlog", Name: "Backlog", Category: "todo", Position: 1},
+		{Key: "todo", Name: "To Do", Category: "todo", Position: 2},
+		{Key: "in_progress", Name: "In Progress", Category: "doing", Position: 3},
+		{Key: "in_review", Name: "In Review", Category: "doing", Position: 4},
+		{Key: "done", Name: "Done", Category: "done", Position: 5},
+		{Key: "archived", Name: "Archived", Category: "done", Position: 6},
+	}
+
+	for _, status := range statuses {
+		record := taskStatusSeed{
+			CompanyID: companyID,
+			StatusKey: status.Key,
+		}
+		if err := tx.Omit("id").Where("company_id = ? AND status_key = ?", companyID, status.Key).
+			Assign(map[string]any{
+				"name":     status.Name,
+				"category": status.Category,
+				"position": status.Position,
+			}).
+			FirstOrCreate(&record).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ensureDemoProjects(tx *gorm.DB, companyID, ownerID uuid.UUID) (map[string]projectsmod.Project, error) {
+	specs := []demoProjectSpec{
+		{Key: "OPS", Name: "Operations Command", Description: "Internal operations and onboarding pipeline.", Icon: "terminal", SprintSize: 10},
+		{Key: "WEB", Name: "Website Revamp", Description: "Marketing site and landing page improvements.", Icon: "globe", SprintSize: 14},
+		{Key: "API", Name: "Platform API", Description: "Core API workflows, auth, and auditability.", Icon: "server", SprintSize: 12},
+	}
+
+	projects := make(map[string]projectsmod.Project, len(specs))
+	for _, spec := range specs {
+		var project projectsmod.Project
+		err := tx.Where("company_id = ? AND project_key = ?", companyID, spec.Key).First(&project).Error
+		switch {
+		case err == nil:
+			if err := tx.Model(&project).Updates(map[string]any{
+				"name":              spec.Name,
+				"description":       spec.Description,
+				"icon":              spec.Icon,
+				"status":            "active",
+				"sprint_size":       spec.SprintSize,
+				"sprint_start_date": time.Now().UTC().AddDate(0, 0, -14),
+				"deleted_at":        nil,
+			}).Error; err != nil {
+				return nil, err
+			}
+			if err := tx.Where("company_id = ? AND project_key = ?", companyID, spec.Key).First(&project).Error; err != nil {
+				return nil, err
+			}
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			project = projectsmod.Project{
+				ID:                uuid.New(),
+				CompanyID:         companyID,
+				ProjectKey:        spec.Key,
+				Name:              spec.Name,
+				Description:       spec.Description,
+				Icon:              spec.Icon,
+				Status:            "active",
+				SprintSize:        intPtr(spec.SprintSize),
+				SprintStartDate:   datePtr(time.Now().UTC().AddDate(0, 0, -14)),
+				CreatedByUserID:   &ownerID,
+			}
+			if err := tx.Create(&project).Error; err != nil {
+				return nil, err
+			}
+		default:
+			return nil, err
+		}
+
+		if err := ensureProjectBoard(tx, companyID, project.ID); err != nil {
+			return nil, err
+		}
+
+		projects[spec.Key] = project
+	}
+
+	return projects, nil
+}
+
+func ensureProjectBoard(tx *gorm.DB, companyID, projectID uuid.UUID) error {
+	var board projectsmod.Board
+	if err := tx.Where("company_id = ? AND project_id = ? AND is_default = ?", companyID, projectID, true).First(&board).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		board = projectsmod.Board{
+			ID:        uuid.New(),
+			CompanyID: companyID,
+			ProjectID: projectID,
+			Name:      "Main Board",
+			IsDefault: true,
+		}
+		if err := tx.Create(&board).Error; err != nil {
+			return err
+		}
+	}
+
+	columns := []struct {
+		Key      string
+		Title    string
+		Color    string
+		Position int
+		WIPLimit *int
+	}{
+		{Key: "backlog", Title: "Backlog", Color: "#f97316", Position: 1},
+		{Key: "todo", Title: "To Do", Color: "#94a3b8", Position: 2},
+		{Key: "in_progress", Title: "In Progress", Color: "#3b82f6", Position: 3, WIPLimit: intPtr(6)},
+		{Key: "in_review", Title: "In Review", Color: "#8b5cf6", Position: 4, WIPLimit: intPtr(4)},
+		{Key: "done", Title: "Done", Color: "#22c55e", Position: 5},
+	}
+
+	for _, column := range columns {
+		record := boardColumnSeed{
+			CompanyID: companyID,
+			BoardID:   board.ID,
+			ColumnKey: column.Key,
+		}
+		if err := tx.Omit("id").Where("company_id = ? AND board_id = ? AND column_key = ?", companyID, board.ID, column.Key).
+			Assign(map[string]any{
+				"title":     column.Title,
+				"color":     column.Color,
+				"position":  column.Position,
+				"wip_limit": column.WIPLimit,
+				"deleted_at": nil,
+			}).
+			FirstOrCreate(&record).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ensureProjectMembers(tx *gorm.DB, ownerID uuid.UUID, users map[string]usersmod.User, projects map[string]projectsmod.Project) error {
+	assignments := map[string][]string{
+		"OPS": {"admin@example.com", "maya@golem.local", "sofia@golem.local", "leo@golem.local"},
+		"WEB": {"admin@example.com", "diego@golem.local", "nina@golem.local", "sofia@golem.local"},
+		"API": {"admin@example.com", "omar@golem.local", "maya@golem.local", "leo@golem.local"},
+	}
+
+	for projectKey, emails := range assignments {
+		project := projects[projectKey]
+		for _, email := range emails {
+			user := users[email]
+			role := "member"
+			if user.ID == ownerID {
+				role = "admin"
+			}
+			record := projectMember{
+				ProjectID:       project.ID,
+				UserID:          user.ID,
+				Role:            role,
+				InvitedByUserID: &ownerID,
+				CreatedAt:       time.Now().UTC(),
+				UpdatedAt:       time.Now().UTC(),
+			}
+			if err := tx.Where("project_id = ? AND user_id = ?", project.ID, user.ID).
+				Assign(map[string]any{
+					"role":               role,
+					"invited_by_user_id": ownerID,
+					"updated_at":         time.Now().UTC(),
+					"deleted_at":         nil,
+				}).
+				FirstOrCreate(&record).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func ensureDemoTasks(tx *gorm.DB, companyID, ownerID uuid.UUID, users map[string]usersmod.User, projects map[string]projectsmod.Project) error {
+	taskSpecs := map[string][]demoTaskSpec{
+		"OPS": {
+			{Title: "Publish onboarding checklist", StatusKey: "done", Priority: "high", EstimatedMinutes: 90, StoryPoints: 3, ColumnKey: "done", AssigneeEmail: "maya@golem.local", DaysAgo: 6},
+			{Title: "Refresh support handoff SOP", StatusKey: "in_review", Priority: "medium", EstimatedMinutes: 120, StoryPoints: 2, ColumnKey: "in_review", AssigneeEmail: "sofia@golem.local", DaysAgo: 2},
+			{Title: "Audit internal admin permissions", StatusKey: "in_progress", Priority: "high", EstimatedMinutes: 180, StoryPoints: 5, ColumnKey: "in_progress", AssigneeEmail: "leo@golem.local", DaysAgo: 1},
+			{Title: "Queue hiring docs translation", StatusKey: "backlog", Priority: "low", EstimatedMinutes: 60, StoryPoints: 1, ColumnKey: "backlog", AssigneeEmail: "maya@golem.local", DaysAgo: 0},
+		},
+		"WEB": {
+			{Title: "Animate proof section cards", StatusKey: "done", Priority: "medium", EstimatedMinutes: 120, StoryPoints: 2, ColumnKey: "done", AssigneeEmail: "diego@golem.local", DaysAgo: 5},
+			{Title: "Hook dashboard screenshots", StatusKey: "done", Priority: "medium", EstimatedMinutes: 45, StoryPoints: 1, ColumnKey: "done", AssigneeEmail: "nina@golem.local", DaysAgo: 3},
+			{Title: "Polish metrics widget layout", StatusKey: "in_progress", Priority: "high", EstimatedMinutes: 150, StoryPoints: 3, ColumnKey: "in_progress", AssigneeEmail: "sofia@golem.local", DaysAgo: 1},
+			{Title: "Review mobile widget spacing", StatusKey: "todo", Priority: "medium", EstimatedMinutes: 60, StoryPoints: 2, ColumnKey: "todo", AssigneeEmail: "diego@golem.local", DaysAgo: 0},
+			{Title: "Draft pricing FAQ block", StatusKey: "backlog", Priority: "low", EstimatedMinutes: 90, StoryPoints: 1, ColumnKey: "backlog", AssigneeEmail: "nina@golem.local", DaysAgo: 0},
+		},
+		"API": {
+			{Title: "Fix dashboard audit query ambiguity", StatusKey: "done", Priority: "high", EstimatedMinutes: 50, StoryPoints: 2, ColumnKey: "done", AssigneeEmail: "omar@golem.local", DaysAgo: 4},
+			{Title: "Seed richer audit trails", StatusKey: "in_review", Priority: "high", EstimatedMinutes: 100, StoryPoints: 3, ColumnKey: "in_review", AssigneeEmail: "maya@golem.local", DaysAgo: 1},
+			{Title: "Expose member workload endpoint", StatusKey: "in_progress", Priority: "medium", EstimatedMinutes: 180, StoryPoints: 5, ColumnKey: "in_progress", AssigneeEmail: "leo@golem.local", DaysAgo: 2},
+			{Title: "Backfill archived task telemetry", StatusKey: "archived", Priority: "low", EstimatedMinutes: 30, StoryPoints: 1, ColumnKey: "done", AssigneeEmail: "omar@golem.local", DaysAgo: 8},
+		},
+	}
+
+	var nextTaskNumber int64 = 1000
+	if err := tx.Table("tasks").Where("company_id = ?", companyID).Select("COALESCE(MAX(task_number), 999)").Scan(&nextTaskNumber).Error; err != nil {
+		return err
+	}
+	nextTaskNumber++
+
+	for projectKey, specs := range taskSpecs {
+		project := projects[projectKey]
+		boardID, columnIDs, err := boardAndColumns(tx, companyID, project.ID)
+		if err != nil {
+			return err
+		}
+
+		for _, spec := range specs {
+			var existing projectsmod.Task
+			err := tx.Where("company_id = ? AND project_id = ? AND title = ?", companyID, project.ID, spec.Title).First(&existing).Error
+			now := time.Now().UTC()
+			createdAt := now.AddDate(0, 0, -spec.DaysAgo)
+			assignee := users[spec.AssigneeEmail]
+			completedAt := (*time.Time)(nil)
+			if spec.StatusKey == "done" || spec.StatusKey == "archived" {
+				t := createdAt.Add(6 * time.Hour)
+				completedAt = &t
+			}
+
+			switch {
+			case err == nil:
+				if err := tx.Model(&existing).Updates(map[string]any{
+					"board_id":           boardID,
+					"column_id":          columnIDs[spec.ColumnKey],
+					"status_key":         spec.StatusKey,
+					"priority":           spec.Priority,
+					"estimated_minutes":  spec.EstimatedMinutes,
+					"story_points":       spec.StoryPoints,
+					"completed_at":       completedAt,
+					"updated_by_user_id": ownerID,
+					"deleted_at":         nil,
+				}).Error; err != nil {
+					return err
+				}
+				if err := ensureTaskAssignee(tx, companyID, existing.ID, assignee.ID, ownerID); err != nil {
+					return err
+				}
+			case errors.Is(err, gorm.ErrRecordNotFound):
+				task := projectsmod.Task{
+					ID:                uuid.New(),
+					CompanyID:         companyID,
+					ProjectID:         project.ID,
+					BoardID:           &boardID,
+					ColumnID:          uuidPtr(columnIDs[spec.ColumnKey]),
+					TaskNumber:        nextTaskNumber,
+					Title:             spec.Title,
+					Description:       fmt.Sprintf("%s work item for dashboard demo coverage.", spec.Title),
+					StatusKey:         spec.StatusKey,
+					Priority:          spec.Priority,
+					StoryPoints:       floatPtr(spec.StoryPoints),
+					Position:          float64(nextTaskNumber),
+					CreatedByUserID:   &ownerID,
+					UpdatedByUserID:   &ownerID,
+				}
+				if err := tx.Create(&task).Error; err != nil {
+					return err
+				}
+				if err := tx.Model(&task).Updates(map[string]any{
+					"estimated_minutes": spec.EstimatedMinutes,
+					"completed_at":      completedAt,
+					"created_at":        createdAt,
+					"updated_at":        createdAt.Add(2 * time.Hour),
+				}).Error; err != nil {
+					return err
+				}
+				if err := ensureTaskAssignee(tx, companyID, task.ID, assignee.ID, ownerID); err != nil {
+					return err
+				}
+				nextTaskNumber++
+			default:
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func boardAndColumns(tx *gorm.DB, companyID, projectID uuid.UUID) (uuid.UUID, map[string]uuid.UUID, error) {
+	var board projectsmod.Board
+	if err := tx.Where("company_id = ? AND project_id = ? AND is_default = ?", companyID, projectID, true).First(&board).Error; err != nil {
+		return uuid.Nil, nil, err
+	}
+
+	var columns []projectsmod.BoardColumn
+	if err := tx.Where("company_id = ? AND board_id = ?", companyID, board.ID).Find(&columns).Error; err != nil {
+		return uuid.Nil, nil, err
+	}
+
+	columnMap := make(map[string]uuid.UUID, len(columns))
+	for _, column := range columns {
+		columnMap[column.ColumnKey] = column.ID
+	}
+
+	return board.ID, columnMap, nil
+}
+
+func ensureTaskAssignee(tx *gorm.DB, companyID, taskID, userID, ownerID uuid.UUID) error {
+	record := taskAssigneeSeed{
+		CompanyID:        companyID,
+		TaskID:           taskID,
+		UserID:           userID,
+		AssignedByUserID: ownerID,
+	}
+	return tx.
+		Where("task_id = ? AND user_id = ?", taskID, userID).
+		FirstOrCreate(&record).Error
+}
+
+func ensureAuditLogs(tx *gorm.DB, companyID uuid.UUID, users map[string]usersmod.User, projects map[string]projectsmod.Project) error {
+	logSpecs := []struct {
+		ActorEmail string
+		Action     string
+		TargetType string
+		ProjectKey string
+		DaysAgo    int
+		Hour       int
+	}{
+		{ActorEmail: "maya@golem.local", Action: "login", TargetType: "session", DaysAgo: 6, Hour: 9},
+		{ActorEmail: "diego@golem.local", Action: "create", TargetType: "task", ProjectKey: "WEB", DaysAgo: 6, Hour: 10},
+		{ActorEmail: "sofia@golem.local", Action: "update", TargetType: "task", ProjectKey: "OPS", DaysAgo: 5, Hour: 11},
+		{ActorEmail: "leo@golem.local", Action: "assign", TargetType: "task", ProjectKey: "API", DaysAgo: 5, Hour: 13},
+		{ActorEmail: "nina@golem.local", Action: "complete", TargetType: "task", ProjectKey: "WEB", DaysAgo: 4, Hour: 15},
+		{ActorEmail: "omar@golem.local", Action: "refresh", TargetType: "api_key", ProjectKey: "API", DaysAgo: 4, Hour: 18},
+		{ActorEmail: "maya@golem.local", Action: "update", TargetType: "project", ProjectKey: "OPS", DaysAgo: 3, Hour: 9},
+		{ActorEmail: "sofia@golem.local", Action: "complete", TargetType: "task", ProjectKey: "OPS", DaysAgo: 3, Hour: 16},
+		{ActorEmail: "diego@golem.local", Action: "update", TargetType: "task", ProjectKey: "WEB", DaysAgo: 2, Hour: 11},
+		{ActorEmail: "leo@golem.local", Action: "create", TargetType: "comment", ProjectKey: "API", DaysAgo: 2, Hour: 14},
+		{ActorEmail: "omar@golem.local", Action: "update", TargetType: "task", ProjectKey: "API", DaysAgo: 1, Hour: 10},
+		{ActorEmail: "nina@golem.local", Action: "complete", TargetType: "task", ProjectKey: "WEB", DaysAgo: 1, Hour: 12},
+		{ActorEmail: "maya@golem.local", Action: "assign", TargetType: "task", ProjectKey: "OPS", DaysAgo: 1, Hour: 17},
+		{ActorEmail: "sofia@golem.local", Action: "login", TargetType: "session", DaysAgo: 0, Hour: 8},
+		{ActorEmail: "diego@golem.local", Action: "create", TargetType: "task", ProjectKey: "WEB", DaysAgo: 0, Hour: 9},
+		{ActorEmail: "leo@golem.local", Action: "update", TargetType: "task", ProjectKey: "API", DaysAgo: 0, Hour: 11},
+		{ActorEmail: "omar@golem.local", Action: "complete", TargetType: "task", ProjectKey: "API", DaysAgo: 0, Hour: 19},
+	}
+
+	for _, spec := range logSpecs {
+		actor := users[spec.ActorEmail]
+		targetID := (*uuid.UUID)(nil)
+		if spec.ProjectKey != "" {
+			if project, ok := projects[spec.ProjectKey]; ok {
+				targetID = &project.ID
+			}
+		}
+		timestamp := time.Now().UTC().AddDate(0, 0, -spec.DaysAgo)
+		timestamp = time.Date(timestamp.Year(), timestamp.Month(), timestamp.Day(), spec.Hour, 0, 0, 0, time.UTC)
+
+		var count int64
+		if err := tx.Table("audit_logs").
+			Where("company_id = ? AND actor_user_id = ? AND action = ? AND target_type = ? AND created_at = ?", companyID, actor.ID, spec.Action, spec.TargetType, timestamp).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+
+		entry := auditLog{
+			ID:          uuid.New(),
+			CompanyID:   companyID,
+			ActorUserID: &actor.ID,
+			ActorType:   "user",
+			Action:      spec.Action,
+			TargetType:  spec.TargetType,
+			TargetID:    targetID,
+			IPAddress:   "127.0.0.1",
+			UserAgent:   "golem-dashboard-seed/1.0",
+			CreatedAt:   timestamp,
+		}
+		if err := tx.Create(&entry).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func intPtr(value int) *int { return &value }
+
+func floatPtr(value float64) *float64 { return &value }
+
+func uuidPtr(value uuid.UUID) *uuid.UUID { return &value }
+
+func datePtr(value time.Time) *time.Time { return &value }
 
 type userRole struct {
 	UserID    uuid.UUID `gorm:"column:user_id"`

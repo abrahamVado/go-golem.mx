@@ -9,6 +9,8 @@ RUN go mod download
 
 COPY . .
 
+RUN go build -o /usr/local/bin/migrate ./cmd/migrate
+
 RUN chmod +x /app/scripts/start-dev.sh
 
 EXPOSE 8080
