@@ -64,12 +64,38 @@ func (h *Handler) setRefreshCookie(c *gin.Context, token string) {
 	})
 }
 
+func (h *Handler) setAccessCookie(c *gin.Context, token string, maxAge int64) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "access_token",
+		Value:    token,
+		Path:     "/api/v1",
+		Domain:   h.cfg.CookieDomain,
+		HttpOnly: true,
+		Secure:   h.cfg.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(maxAge),
+	})
+}
+
 // clearRefreshCookie removes the refresh cookie from the browser.
 func (h *Handler) clearRefreshCookie(c *gin.Context) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     "refresh_token",
 		Value:    "",
 		Path:     "/api/v1/auth",
+		Domain:   h.cfg.CookieDomain,
+		HttpOnly: true,
+		Secure:   h.cfg.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+}
+
+func (h *Handler) clearAccessCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "access_token",
+		Value:    "",
+		Path:     "/api/v1",
 		Domain:   h.cfg.CookieDomain,
 		HttpOnly: true,
 		Secure:   h.cfg.CookieSecure,
@@ -143,8 +169,12 @@ func (h *Handler) Login(c *gin.Context) {
 	}
 
 	h.setRefreshCookie(c, refresh)
+	h.setAccessCookie(c, out.AccessToken, out.ExpiresIn)
 
-	response.OK(c, out)
+	response.OK(c, BrowserSessionResponse{
+		TokenType: out.TokenType,
+		ExpiresIn: out.ExpiresIn,
+	})
 }
 
 // Refresh rotates the refresh token and returns a new access token.
@@ -173,8 +203,12 @@ func (h *Handler) Refresh(c *gin.Context) {
 	}
 
 	h.setRefreshCookie(c, refresh)
+	h.setAccessCookie(c, out.AccessToken, out.ExpiresIn)
 
-	response.OK(c, out)
+	response.OK(c, BrowserSessionResponse{
+		TokenType: out.TokenType,
+		ExpiresIn: out.ExpiresIn,
+	})
 }
 
 // Logout revokes the current refresh token and clears the cookie.
@@ -191,6 +225,7 @@ func (h *Handler) Logout(c *gin.Context) {
 	}
 
 	h.clearRefreshCookie(c)
+	h.clearAccessCookie(c)
 
 	response.OK(c, gin.H{
 		"message": "logged out",

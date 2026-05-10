@@ -8,8 +8,8 @@ import (
 
 	companiesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/companies"
 	permissionsmod "github.com/abrahamVado/go-paladin.mx/internal/modules/permissions"
-	projectsmod "github.com/abrahamVado/go-paladin.mx/internal/modules/projects"
 	rbacmod "github.com/abrahamVado/go-paladin.mx/internal/modules/rbac"
+	projectsmod "github.com/abrahamVado/go-paladin.mx/internal/modules/projects"
 	rolesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/roles"
 	usersmod "github.com/abrahamVado/go-paladin.mx/internal/modules/users"
 	"github.com/abrahamVado/go-paladin.mx/internal/platform/config"
@@ -92,13 +92,13 @@ func Run(db *gorm.DB, cfg config.Config) error {
 }
 
 type projectMember struct {
-	ProjectID       uuid.UUID  `gorm:"column:project_id"`
-	UserID          uuid.UUID  `gorm:"column:user_id"`
-	Role            string     `gorm:"column:role"`
-	InvitedByUserID *uuid.UUID `gorm:"column:invited_by_user_id"`
-	DeletedAt       *time.Time `gorm:"column:deleted_at"`
-	CreatedAt       time.Time  `gorm:"column:created_at"`
-	UpdatedAt       time.Time  `gorm:"column:updated_at"`
+	ProjectID        uuid.UUID  `gorm:"column:project_id"`
+	UserID           uuid.UUID  `gorm:"column:user_id"`
+	Role             string     `gorm:"column:role"`
+	InvitedByUserID  *uuid.UUID `gorm:"column:invited_by_user_id"`
+	DeletedAt        *time.Time `gorm:"column:deleted_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at"`
 }
 
 func (projectMember) TableName() string { return "project_members" }
@@ -322,16 +322,16 @@ func ensureDemoProjects(tx *gorm.DB, companyID, ownerID uuid.UUID) (map[string]p
 			}
 		case errors.Is(err, gorm.ErrRecordNotFound):
 			project = projectsmod.Project{
-				ID:              uuid.New(),
-				CompanyID:       companyID,
-				ProjectKey:      spec.Key,
-				Name:            spec.Name,
-				Description:     spec.Description,
-				Icon:            spec.Icon,
-				Status:          "active",
-				SprintSize:      intPtr(spec.SprintSize),
-				SprintStartDate: datePtr(time.Now().UTC().AddDate(0, 0, -14)),
-				CreatedByUserID: &ownerID,
+				ID:                uuid.New(),
+				CompanyID:         companyID,
+				ProjectKey:        spec.Key,
+				Name:              spec.Name,
+				Description:       spec.Description,
+				Icon:              spec.Icon,
+				Status:            "active",
+				SprintSize:        intPtr(spec.SprintSize),
+				SprintStartDate:   datePtr(time.Now().UTC().AddDate(0, 0, -14)),
+				CreatedByUserID:   &ownerID,
 			}
 			if err := tx.Create(&project).Error; err != nil {
 				return nil, err
@@ -390,10 +390,10 @@ func ensureProjectBoard(tx *gorm.DB, companyID, projectID uuid.UUID) error {
 		}
 		if err := tx.Omit("id").Where("company_id = ? AND board_id = ? AND column_key = ?", companyID, board.ID, column.Key).
 			Assign(map[string]any{
-				"title":      column.Title,
-				"color":      column.Color,
-				"position":   column.Position,
-				"wip_limit":  column.WIPLimit,
+				"title":     column.Title,
+				"color":     column.Color,
+				"position":  column.Position,
+				"wip_limit": column.WIPLimit,
 				"deleted_at": nil,
 			}).
 			FirstOrCreate(&record).Error; err != nil {
@@ -511,20 +511,20 @@ func ensureDemoTasks(tx *gorm.DB, companyID, ownerID uuid.UUID, users map[string
 				}
 			case errors.Is(err, gorm.ErrRecordNotFound):
 				task := projectsmod.Task{
-					ID:              uuid.New(),
-					CompanyID:       companyID,
-					ProjectID:       project.ID,
-					BoardID:         &boardID,
-					ColumnID:        uuidPtr(columnIDs[spec.ColumnKey]),
-					TaskNumber:      nextTaskNumber,
-					Title:           spec.Title,
-					Description:     fmt.Sprintf("%s work item for dashboard demo coverage.", spec.Title),
-					StatusKey:       spec.StatusKey,
-					Priority:        spec.Priority,
-					StoryPoints:     floatPtr(spec.StoryPoints),
-					Position:        float64(nextTaskNumber),
-					CreatedByUserID: &ownerID,
-					UpdatedByUserID: &ownerID,
+					ID:                uuid.New(),
+					CompanyID:         companyID,
+					ProjectID:         project.ID,
+					BoardID:           &boardID,
+					ColumnID:          uuidPtr(columnIDs[spec.ColumnKey]),
+					TaskNumber:        nextTaskNumber,
+					Title:             spec.Title,
+					Description:       fmt.Sprintf("%s work item for dashboard demo coverage.", spec.Title),
+					StatusKey:         spec.StatusKey,
+					Priority:          spec.Priority,
+					StoryPoints:       floatPtr(spec.StoryPoints),
+					Position:          float64(nextTaskNumber),
+					CreatedByUserID:   &ownerID,
+					UpdatedByUserID:   &ownerID,
 				}
 				if err := tx.Create(&task).Error; err != nil {
 					return err

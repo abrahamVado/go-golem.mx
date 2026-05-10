@@ -31,3 +31,8 @@ type AuthResponse struct {
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int64  `json:"expires_in"`
 }
+
+type BrowserSessionResponse struct {
+	TokenType string `json:"token_type"`
+	ExpiresIn int64  `json:"expires_in"`
+}

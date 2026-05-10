@@ -40,9 +40,9 @@ import (
 // -----------------------------------------------------------------------------
 
 type Config struct {
-	AppEnv  string
+	AppEnv string
 	AppPort string
-	AppURL  string
+	AppURL string
 
 	FrontendURL string
 

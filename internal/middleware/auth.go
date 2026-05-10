@@ -43,12 +43,7 @@ func RequireAuth(secret string) gin.HandlerFunc {
 		//
 		// Missing header means the request is unauthenticated.
 		authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-
-		if authHeader == "" {
-			response.Fail(c, 401, "UNAUTHENTICATED", "Authentication required")
-			c.Abort()
-			return
-		}
+		accessToken := ""
 
 		// ---------------------------------------------------------------------
 		// Validate Bearer token format
@@ -64,18 +59,25 @@ func RequireAuth(secret string) gin.HandlerFunc {
 		//   Bearer    token
 		//   Token abc
 		//   Bearer token extra
-		parts := strings.Fields(authHeader)
+		if authHeader != "" {
+			parts := strings.Fields(authHeader)
 
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-			response.Fail(c, 401, "INVALID_AUTH_HEADER", "Invalid authorization header")
-			c.Abort()
-			return
+			if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+				response.Fail(c, 401, "INVALID_AUTH_HEADER", "Invalid authorization header")
+				c.Abort()
+				return
+			}
+
+			accessToken = strings.TrimSpace(parts[1])
+		} else {
+			cookieToken, err := c.Cookie("access_token")
+			if err == nil {
+				accessToken = strings.TrimSpace(cookieToken)
+			}
 		}
 
-		accessToken := strings.TrimSpace(parts[1])
-
 		if accessToken == "" {
-			response.Fail(c, 401, "INVALID_AUTH_HEADER", "Access token is required")
+			response.Fail(c, 401, "UNAUTHENTICATED", "Authentication required")
 			c.Abort()
 			return
 		}
