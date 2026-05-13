@@ -910,10 +910,9 @@ func ensureDefaultColumns(tx *gorm.DB, companyID, boardID uuid.UUID) error {
 		return nil
 	}
 	columns := []BoardColumn{
-		{ID: uuid.New(), CompanyID: companyID, BoardID: boardID, ColumnKey: "backlog", Title: "Backlog", Color: "gray", Position: 1},
-		{ID: uuid.New(), CompanyID: companyID, BoardID: boardID, ColumnKey: "todo", Title: "To Do", Color: "blue", Position: 2},
-		{ID: uuid.New(), CompanyID: companyID, BoardID: boardID, ColumnKey: "in_progress", Title: "In Progress", Color: "amber", Position: 3},
-		{ID: uuid.New(), CompanyID: companyID, BoardID: boardID, ColumnKey: "done", Title: "Done", Color: "green", Position: 4},
+		{ID: uuid.New(), CompanyID: companyID, BoardID: boardID, ColumnKey: "todo", Title: "To Do", Color: "blue", Position: 1},
+		{ID: uuid.New(), CompanyID: companyID, BoardID: boardID, ColumnKey: "in_progress", Title: "In Progress", Color: "amber", Position: 2},
+		{ID: uuid.New(), CompanyID: companyID, BoardID: boardID, ColumnKey: "done", Title: "Done", Color: "green", Position: 3},
 	}
 	return tx.Create(&columns).Error
 }
@@ -1513,7 +1512,7 @@ func replaceTaskRelations(tx *gorm.DB, companyID, taskID uuid.UUID, req taskPayl
 func findColumnByKey(tx *gorm.DB, boardID uuid.UUID, key string) (BoardColumn, error) {
 	lookup := strings.TrimSpace(key)
 	if lookup == "" {
-		lookup = "backlog"
+		lookup = "todo"
 	}
 	var column BoardColumn
 	err := tx.Where("board_id = ? AND column_key = ? AND deleted_at IS NULL", boardID, lookup).First(&column).Error
@@ -1577,16 +1576,16 @@ func (s *Service) deleteColumn(companyID, userID, projectID, columnID uuid.UUID)
 		if err := tx.Where("id = ? AND board_id = ? AND deleted_at IS NULL", columnID, board.ID).First(&column).Error; err != nil {
 			return err
 		}
-		if column.ColumnKey == "backlog" {
-			return errors.New("backlog column cannot be deleted")
+		if column.ColumnKey == "todo" {
+			return errors.New("to do column cannot be deleted")
 		}
-		backlog, err := findColumnByKey(tx, board.ID, "backlog")
+		todo, err := findColumnByKey(tx, board.ID, "todo")
 		if err != nil {
 			return err
 		}
 		if err := tx.Model(&Task{}).Where("column_id = ? AND company_id = ? AND deleted_at IS NULL", columnID, companyID).Updates(map[string]any{
-			"column_id":  backlog.ID,
-			"status_key": backlog.ColumnKey,
+			"column_id":  todo.ID,
+			"status_key": todo.ColumnKey,
 		}).Error; err != nil {
 			return err
 		}
