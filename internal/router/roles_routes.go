@@ -14,36 +14,42 @@ func registerRoleRoutes(
 ) {
 	private.GET(
 		"/roles",
+		middleware.RequirePremiumAccount(rbac.DB),
 		middleware.RequirePermission(rbac, "role:manage"),
 		rolesH.List,
 	)
 
 	private.POST(
 		"/roles",
+		middleware.RequirePremiumAccount(rbac.DB),
 		middleware.RequirePermission(rbac, "role:manage"),
 		rolesH.Create,
 	)
 
 	private.GET(
 		"/roles/:id",
+		middleware.RequirePremiumAccount(rbac.DB),
 		middleware.RequirePermission(rbac, "role:manage"),
 		rolesH.Get,
 	)
 
 	private.GET(
 		"/roles/:id/permissions",
+		middleware.RequirePremiumAccount(rbac.DB),
 		middleware.RequirePermission(rbac, "role:manage"),
 		rolesH.GetPermissions,
 	)
 
 	private.PATCH(
 		"/roles/:id",
+		middleware.RequirePremiumAccount(rbac.DB),
 		middleware.RequirePermission(rbac, "role:manage"),
 		rolesH.Update,
 	)
 
 	private.DELETE(
 		"/roles/:id",
+		middleware.RequirePremiumAccount(rbac.DB),
 		middleware.RequirePermission(rbac, "role:manage"),
 		rolesH.Delete,
 	)

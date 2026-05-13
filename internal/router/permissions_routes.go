@@ -14,12 +14,14 @@ func registerPermissionRoutes(
 ) {
 	private.GET(
 		"/permissions",
+		middleware.RequirePremiumAccount(rbac.DB),
 		middleware.RequirePermission(rbac, "role:manage"),
 		permissionsH.List,
 	)
 
 	private.POST(
 		"/permissions",
+		middleware.RequirePremiumAccount(rbac.DB),
 		middleware.RequirePermission(rbac, "role:manage"),
 		permissionsH.Create,
 	)

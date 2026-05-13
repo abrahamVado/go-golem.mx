@@ -57,6 +57,7 @@ var (
 	ErrCompanyNameRequired    = errors.New("company name is required")
 	ErrRegisterNameRequired   = errors.New("name is required")
 	ErrRegisterEmailExists    = errors.New("a user with this email already exists")
+	ErrAccountBlocked         = errors.New("your premium and grace periods have ended; renew your plan to continue")
 )
 
 type Service struct {
@@ -112,6 +113,18 @@ func (s *Service) Login(
 
 	if !security.CheckPassword(user.PasswordHash, password) {
 		return AuthResponse{}, "", ErrInvalidCredentials
+	}
+
+	snapshot := users.ResolveAccountSnapshot(user, time.Now().UTC())
+	if snapshot.Type != user.AccountType || (snapshot.IsBlocked && user.BlockedAt == nil) || (!snapshot.IsBlocked && user.BlockedAt != nil) {
+		if err := s.repo.UpdateAccountState(user.CompanyID, user.ID, snapshot.Type, snapshot.BlockedAt); err != nil {
+			return AuthResponse{}, "", err
+		}
+		user.AccountType = snapshot.Type
+		user.BlockedAt = snapshot.BlockedAt
+	}
+	if snapshot.IsBlocked {
+		return AuthResponse{}, "", ErrAccountBlocked
 	}
 
 	accessToken, err := security.NewAccessToken(
@@ -334,7 +347,13 @@ func (s *Service) Register(req RegisterRequest) (uuid.UUID, error) {
 			Description: "Client-facing access limited to company overview and delivery workspaces",
 			IsSystem:    true,
 		},
-		[]string{"organization:view", "project:view", "task:view", "file:view", "chat:use"},
+		[]string{
+			"organization:view", "organization:update", "member:invite", "member:update", "member:remove", "role:manage",
+			"project:create", "project:view", "project:update", "project:delete",
+			"task:create", "task:view", "task:update", "task:delete",
+			"file:upload", "file:view", "file:delete",
+			"webhook:manage", "billing:manage", "apikey:manage", "audit:view", "chat:use",
+		},
 	)
 	if err != nil {
 		return uuid.Nil, err
@@ -371,13 +390,21 @@ func (s *Service) Reset(token string, password string) error {
 }
 
 type MeResponse struct {
-	UserID    uuid.UUID  `json:"user_id"`
-	CompanyID uuid.UUID  `json:"company_id"`
-	BranchID  *uuid.UUID `json:"branch_id,omitempty"`
-	Name      string     `json:"name"`
-	Email     string     `json:"email"`
-	Role      string     `json:"role,omitempty"`
-	AvatarURL string     `json:"avatar_url,omitempty"`
+	UserID               uuid.UUID  `json:"user_id"`
+	CompanyID            uuid.UUID  `json:"company_id"`
+	BranchID             *uuid.UUID `json:"branch_id,omitempty"`
+	Name                 string     `json:"name"`
+	Email                string     `json:"email"`
+	Role                 string     `json:"role,omitempty"`
+	AvatarURL            string     `json:"avatar_url,omitempty"`
+	AccountType          string     `json:"account_type"`
+	IsPremium            bool       `json:"is_premium"`
+	IsBlocked            bool       `json:"is_blocked"`
+	PremiumDaysRemaining int        `json:"premium_days_remaining"`
+	FreeDaysRemaining    int        `json:"free_days_remaining"`
+	PremiumExpiresAt     *time.Time `json:"premium_expires_at,omitempty"`
+	FreeExpiresAt        *time.Time `json:"free_expires_at,omitempty"`
+	BlockedAt            *time.Time `json:"blocked_at,omitempty"`
 }
 
 func (s *Service) Me(companyID, userID uuid.UUID) (MeResponse, error) {
@@ -456,14 +483,23 @@ func (s *Service) UpdateMyAvatar(companyID, userID uuid.UUID, header *multipart.
 }
 
 func toMeResponse(user users.User, role string) MeResponse {
+	snapshot := users.ResolveAccountSnapshot(user, time.Now().UTC())
 	return MeResponse{
-		UserID:    user.ID,
-		CompanyID: user.CompanyID,
-		BranchID:  user.BranchID,
-		Name:      user.Name,
-		Email:     user.Email,
-		Role:      role,
-		AvatarURL: user.AvatarURL,
+		UserID:               user.ID,
+		CompanyID:            user.CompanyID,
+		BranchID:             user.BranchID,
+		Name:                 user.Name,
+		Email:                user.Email,
+		Role:                 role,
+		AvatarURL:            user.AvatarURL,
+		AccountType:          snapshot.Type,
+		IsPremium:            snapshot.IsPremium,
+		IsBlocked:            snapshot.IsBlocked,
+		PremiumDaysRemaining: snapshot.PremiumDaysRemaining,
+		FreeDaysRemaining:    snapshot.FreeDaysRemaining,
+		PremiumExpiresAt:     user.PremiumExpiresAt,
+		FreeExpiresAt:        user.FreeExpiresAt,
+		BlockedAt:            snapshot.BlockedAt,
 	}
 }
 

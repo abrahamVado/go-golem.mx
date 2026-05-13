@@ -1,7 +1,7 @@
 package users
 
 import (
-	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -10,12 +10,20 @@ import (
 type Repository struct{ DB *gorm.DB }
 
 type UserSummary struct {
-	ID        uuid.UUID `json:"id"`
-	Email     string    `json:"email"`
-	Name      string    `json:"name"`
-	AvatarURL string    `json:"avatar_url,omitempty"`
-	Status    string    `json:"status"`
-	RoleNames []string  `json:"role_names"`
+	ID                   uuid.UUID  `json:"id"`
+	Email                string     `json:"email"`
+	Name                 string     `json:"name"`
+	AvatarURL            string     `json:"avatar_url,omitempty"`
+	Status               string     `json:"status"`
+	AccountType          string     `json:"account_type"`
+	IsPremium            bool       `json:"is_premium"`
+	IsBlocked            bool       `json:"is_blocked"`
+	PremiumDaysRemaining int        `json:"premium_days_remaining"`
+	FreeDaysRemaining    int        `json:"free_days_remaining"`
+	PremiumExpiresAt     *time.Time `json:"premium_expires_at,omitempty"`
+	FreeExpiresAt        *time.Time `json:"free_expires_at,omitempty"`
+	BlockedAt            *time.Time `json:"blocked_at,omitempty"`
+	RoleNames            []string   `json:"role_names"`
 }
 
 type userRoleRow struct {
@@ -73,14 +81,18 @@ func (r *Repository) List(companyID uuid.UUID) ([]UserSummary, error) {
 	return r.enrichRoleNames(users)
 }
 
-func (r *Repository) Create(companyID uuid.UUID, email, name, passwordHash, status string, roleIDs []uuid.UUID) (UserSummary, error) {
+func (r *Repository) Create(companyID uuid.UUID, email, name, passwordHash, status, accountType string, premiumExpiresAt, freeExpiresAt, blockedAt *time.Time, roleIDs []uuid.UUID) (UserSummary, error) {
 	user := User{
-		ID:           uuid.New(),
-		CompanyID:    companyID,
-		Email:        email,
-		Name:         name,
-		PasswordHash: passwordHash,
-		Status:       status,
+		ID:               uuid.New(),
+		CompanyID:        companyID,
+		Email:            email,
+		Name:             name,
+		PasswordHash:     passwordHash,
+		Status:           status,
+		AccountType:      accountType,
+		PremiumExpiresAt: premiumExpiresAt,
+		FreeExpiresAt:    freeExpiresAt,
+		BlockedAt:        blockedAt,
 	}
 
 	err := r.DB.Transaction(func(tx *gorm.DB) error {
@@ -115,14 +127,18 @@ func (r *Repository) Create(companyID uuid.UUID, email, name, passwordHash, stat
 	return summaries[0], nil
 }
 
-func (r *Repository) Update(companyID, userID uuid.UUID, email, name, status string, roleIDs []uuid.UUID) (UserSummary, error) {
+func (r *Repository) Update(companyID, userID uuid.UUID, email, name, status, accountType string, premiumExpiresAt, freeExpiresAt, blockedAt *time.Time, roleIDs []uuid.UUID) (UserSummary, error) {
 	err := r.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&User{}).
 			Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, userID).
 			Updates(map[string]any{
-				"email":  email,
-				"name":   name,
-				"status": status,
+				"email":              email,
+				"name":               name,
+				"status":             status,
+				"account_type":       accountType,
+				"premium_expires_at": premiumExpiresAt,
+				"free_expires_at":    freeExpiresAt,
+				"blocked_at":         blockedAt,
 			}).Error; err != nil {
 			return err
 		}
@@ -196,13 +212,22 @@ func (r *Repository) enrichRoleNames(users []User) ([]UserSummary, error) {
 	}
 
 	for _, user := range users {
+		snapshot := ResolveAccountSnapshot(user, time.Now().UTC())
 		out = append(out, UserSummary{
-			ID:        user.ID,
-			Email:     user.Email,
-			Name:      user.Name,
-			AvatarURL: user.AvatarURL,
-			Status:    user.Status,
-			RoleNames: uniqueStrings(roleNamesByUser[user.ID]),
+			ID:                   user.ID,
+			Email:                user.Email,
+			Name:                 user.Name,
+			AvatarURL:            user.AvatarURL,
+			Status:               user.Status,
+			AccountType:          snapshot.Type,
+			IsPremium:            snapshot.IsPremium,
+			IsBlocked:            snapshot.IsBlocked,
+			PremiumDaysRemaining: snapshot.PremiumDaysRemaining,
+			FreeDaysRemaining:    snapshot.FreeDaysRemaining,
+			PremiumExpiresAt:     user.PremiumExpiresAt,
+			FreeExpiresAt:        user.FreeExpiresAt,
+			BlockedAt:            snapshot.BlockedAt,
+			RoleNames:            uniqueStrings(roleNamesByUser[user.ID]),
 		})
 	}
 	return out, nil
@@ -212,7 +237,7 @@ func uniqueStrings(values []string) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		key := strings.TrimSpace(value)
+		key := value
 		if key == "" {
 			continue
 		}

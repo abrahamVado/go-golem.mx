@@ -200,6 +200,21 @@ func (r *Repository) FindPrimaryRoleName(companyID, userID uuid.UUID) (string, e
 	return strings.TrimSpace(row.Name), nil
 }
 
+func (r *Repository) UpdateAccountState(companyID, userID uuid.UUID, accountType string, blockedAt *time.Time) error {
+	updates := map[string]any{
+		"account_type": accountType,
+		"blocked_at":   blockedAt,
+	}
+	if accountType != users.AccountTypeInvalidClient {
+		updates["blocked_at"] = nil
+	}
+
+	return r.DB.Model(&users.User{}).
+		Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, userID).
+		Updates(updates).
+		Error
+}
+
 func (r *Repository) UpdateMyProfile(companyID, userID uuid.UUID, name string) (users.User, error) {
 	if err := r.DB.Model(&users.User{}).
 		Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, userID).
@@ -269,6 +284,12 @@ func (r *Repository) CreateCompanyWithClientUser(company companiesmod.Company, u
 		}
 
 		user.CompanyID = company.ID
+		now := time.Now().UTC()
+		premiumUntil := now.AddDate(0, 0, 30)
+		freeUntil := premiumUntil.AddDate(0, 0, 30)
+		user.AccountType = users.AccountTypePremiumClient
+		user.PremiumExpiresAt = &premiumUntil
+		user.FreeExpiresAt = &freeUntil
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}

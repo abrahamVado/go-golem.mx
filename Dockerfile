@@ -4,8 +4,20 @@ WORKDIR /app
 
 RUN apk add --no-cache git ca-certificates
 
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GOSUMDB=sum.golang.org
+ENV GODEBUG=http2client=0
+
 COPY go.mod go.sum ./
-RUN go mod download
+RUN set -eux; \
+    attempt=0; \
+    until [ "$attempt" -ge 5 ]; do \
+      go mod download && break; \
+      attempt=$((attempt + 1)); \
+      echo "go mod download failed, retrying ($attempt/5)..." >&2; \
+      sleep $((attempt * 2)); \
+    done; \
+    [ "$attempt" -lt 5 ]
 
 COPY . .
 
@@ -18,7 +30,7 @@ FROM alpine:3.21
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates wget && adduser -D -H appuser
+RUN apk add --no-cache ca-certificates && adduser -D -H appuser
 
 COPY --from=builder /bin/api /app/api
 COPY --from=builder /bin/migrate /app/migrate

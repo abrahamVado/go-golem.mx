@@ -3,6 +3,7 @@ package users
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/abrahamVado/go-paladin.mx/internal/security"
 	"github.com/google/uuid"
@@ -15,6 +16,7 @@ var (
 	ErrUserEmailExists      = errors.New("a user with this email already exists")
 	ErrUserRoleInvalid      = errors.New("one or more selected roles are invalid for this company")
 	ErrUserNotFound         = errors.New("user not found")
+	ErrUserAccountInvalid   = errors.New("invalid account type")
 )
 
 type Service struct{ repo *Repository }
@@ -52,6 +54,8 @@ func (s *Service) Create(companyID uuid.UUID, req CreateRequest, bcryptCost int)
 		return UserSummary{}, ErrUserEmailExists
 	}
 
+	accountType, premiumExpiresAt, freeExpiresAt, blockedAt := accountLifecycle(req.AccountType, time.Now().UTC())
+
 	roleIDs, err := parseUUIDStrings(req.RoleIDs)
 	if err != nil {
 		return UserSummary{}, ErrUserRoleInvalid
@@ -71,7 +75,7 @@ func (s *Service) Create(companyID uuid.UUID, req CreateRequest, bcryptCost int)
 		return UserSummary{}, err
 	}
 
-	return s.repo.Create(companyID, email, name, passwordHash, status, roleIDs)
+	return s.repo.Create(companyID, email, name, passwordHash, status, accountType, premiumExpiresAt, freeExpiresAt, blockedAt, roleIDs)
 }
 
 func (s *Service) Update(companyID, userID uuid.UUID, req UpdateRequest) (UserSummary, error) {
@@ -106,6 +110,8 @@ func (s *Service) Update(companyID, userID uuid.UUID, req UpdateRequest) (UserSu
 		return UserSummary{}, ErrUserEmailExists
 	}
 
+	accountType, premiumExpiresAt, freeExpiresAt, blockedAt := accountLifecycle(req.AccountType, time.Now().UTC())
+
 	roleIDs, err := parseUUIDStrings(req.RoleIDs)
 	if err != nil {
 		return UserSummary{}, ErrUserRoleInvalid
@@ -120,7 +126,7 @@ func (s *Service) Update(companyID, userID uuid.UUID, req UpdateRequest) (UserSu
 		}
 	}
 
-	return s.repo.Update(companyID, userID, email, name, status, roleIDs)
+	return s.repo.Update(companyID, userID, email, name, status, accountType, premiumExpiresAt, freeExpiresAt, blockedAt, roleIDs)
 }
 
 func (s *Service) Delete(companyID, userID uuid.UUID) error {
@@ -149,4 +155,24 @@ func parseUUIDStrings(values []string) ([]uuid.UUID, error) {
 		out = append(out, id)
 	}
 	return out, nil
+}
+
+func accountLifecycle(raw string, now time.Time) (string, *time.Time, *time.Time, *time.Time) {
+	accountType := NormalizeAccountType(raw)
+	now = now.UTC()
+
+	switch accountType {
+	case AccountTypeOwner, AccountTypeFounder:
+		return accountType, nil, nil, nil
+	case AccountTypePremiumClient:
+		premiumUntil := now.AddDate(0, 0, 30)
+		freeUntil := premiumUntil.AddDate(0, 0, 30)
+		return accountType, &premiumUntil, &freeUntil, nil
+	case AccountTypeInvalidClient:
+		blockedAt := now
+		return accountType, nil, nil, &blockedAt
+	default:
+		freeUntil := now.AddDate(0, 0, 30)
+		return AccountTypeFreeClient, nil, &freeUntil, nil
+	}
 }

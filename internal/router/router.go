@@ -55,6 +55,7 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 
 	private := api.Group("")
 	private.Use(middleware.RequireAuth(cfg.JWTAccessSecret))
+	private.Use(middleware.RequireActiveAccount(db))
 
 	registerPrivateAuthRoutes(private, authH)
 

@@ -15,6 +15,10 @@ type User struct {
 	AvatarURL        string         `json:"avatar_url,omitempty"`
 	PasswordHash     string         `json:"-" gorm:"not null"`
 	Status           string         `json:"status" gorm:"not null;default:active"`
+	AccountType      string         `json:"account_type" gorm:"not null;default:free_client"`
+	PremiumExpiresAt *time.Time     `json:"premium_expires_at,omitempty"`
+	FreeExpiresAt    *time.Time     `json:"free_expires_at,omitempty"`
+	BlockedAt        *time.Time     `json:"blocked_at,omitempty"`
 	FailedLoginCount int            `json:"-"`
 	LockedUntil      *time.Time     `json:"-"`
 	CreatedAt        time.Time      `json:"created_at"`

@@ -23,11 +23,23 @@ func Run(db *gorm.DB, cfg config.Config) error {
 	password := cfg.DefaultOwnerPassword
 	companyName := strings.TrimSpace(cfg.DefaultCompanyName)
 
-	if email == "" || password == "" {
-		return nil
-	}
-
 	return db.Transaction(func(tx *gorm.DB) error {
+		if err := ensureRBACSchema(tx); err != nil {
+			return err
+		}
+
+		if err := ensurePlatformPermissions(tx); err != nil {
+			return err
+		}
+
+		if err := ensureClientRolePermissions(tx); err != nil {
+			return err
+		}
+
+		if email == "" || password == "" {
+			return nil
+		}
+
 		company := companiesmod.Company{
 			Name:   companyName,
 			Slug:   slugify(companyName),
@@ -47,10 +59,14 @@ func Run(db *gorm.DB, cfg config.Config) error {
 		err = tx.Where("email = ?", email).First(&user).Error
 		if err == nil {
 			if err := tx.Model(&user).Updates(map[string]any{
-				"company_id":    company.ID,
-				"name":          "Platform Admin",
-				"password_hash": hash,
-				"status":        "active",
+				"company_id":         company.ID,
+				"name":               "Platform Admin",
+				"password_hash":      hash,
+				"status":             "active",
+				"account_type":       usersmod.AccountTypeOwner,
+				"premium_expires_at": nil,
+				"free_expires_at":    nil,
+				"blocked_at":         nil,
 			}).Error; err != nil {
 				return err
 			}
@@ -73,6 +89,7 @@ func Run(db *gorm.DB, cfg config.Config) error {
 			Name:         "Platform Admin",
 			PasswordHash: hash,
 			Status:       "active",
+			AccountType:  usersmod.AccountTypeOwner,
 		}
 
 		if err := tx.Create(&user).Error; err != nil {
@@ -89,6 +106,107 @@ func Run(db *gorm.DB, cfg config.Config) error {
 
 		return seedDashboardDemoData(tx, cfg, company.ID, user.ID)
 	})
+}
+
+func ensurePlatformPermissions(tx *gorm.DB) error {
+	permissions := []permissionsmod.Permission{
+		{Name: "organization:view", Description: "View organization details"},
+		{Name: "organization:update", Description: "Update organization settings"},
+		{Name: "member:invite", Description: "Invite users"},
+		{Name: "member:update", Description: "Update members"},
+		{Name: "member:remove", Description: "Remove members"},
+		{Name: "role:manage", Description: "Manage roles and permissions"},
+		{Name: "project:create", Description: "Create projects"},
+		{Name: "project:view", Description: "View projects"},
+		{Name: "project:update", Description: "Update projects"},
+		{Name: "project:delete", Description: "Delete projects"},
+		{Name: "task:create", Description: "Create tasks"},
+		{Name: "task:view", Description: "View tasks"},
+		{Name: "task:update", Description: "Update tasks"},
+		{Name: "task:delete", Description: "Delete tasks"},
+		{Name: "file:upload", Description: "Upload files"},
+		{Name: "file:view", Description: "View files"},
+		{Name: "file:delete", Description: "Delete files"},
+		{Name: "webhook:manage", Description: "Manage webhooks"},
+		{Name: "billing:manage", Description: "Manage billing"},
+		{Name: "apikey:manage", Description: "Manage API clients and keys"},
+		{Name: "audit:view", Description: "View audit logs"},
+		{Name: "chat:use", Description: "Use chat features"},
+	}
+
+	for _, permission := range permissions {
+		permissionSeed := permission
+		if err := tx.
+			Where("name = ?", permissionSeed.Name).
+			Assign(map[string]any{"description": permissionSeed.Description}).
+			FirstOrCreate(&permissionSeed).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ensureClientRolePermissions(tx *gorm.DB) error {
+	clientPermissionNames := []string{
+		"organization:view",
+		"organization:update",
+		"member:invite",
+		"member:update",
+		"member:remove",
+		"role:manage",
+		"project:create",
+		"project:view",
+		"project:update",
+		"project:delete",
+		"task:create",
+		"task:view",
+		"task:update",
+		"task:delete",
+		"file:upload",
+		"file:view",
+		"file:delete",
+		"webhook:manage",
+		"billing:manage",
+		"apikey:manage",
+		"audit:view",
+		"chat:use",
+	}
+
+	var clientRoleIDs []uuid.UUID
+	if err := tx.Model(&rolesmod.Role{}).
+		Where("LOWER(name) = ? AND deleted_at IS NULL", "client").
+		Pluck("id", &clientRoleIDs).Error; err != nil {
+		return err
+	}
+
+	if len(clientRoleIDs) == 0 {
+		return nil
+	}
+
+	var permissionIDs []uuid.UUID
+	if err := tx.Model(&permissionsmod.Permission{}).
+		Where("name IN ?", clientPermissionNames).
+		Pluck("id", &permissionIDs).Error; err != nil {
+		return err
+	}
+
+	for _, roleID := range clientRoleIDs {
+		if err := tx.Exec(`DELETE FROM role_permissions WHERE role_id = ?`, roleID).Error; err != nil {
+			return err
+		}
+		for _, permissionID := range permissionIDs {
+			if err := tx.Exec(`
+				INSERT INTO role_permissions (role_id, permission_id)
+				VALUES (?, ?)
+				ON CONFLICT (role_id, permission_id) DO NOTHING
+			`, roleID, permissionID).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 type projectMember struct {
@@ -708,6 +826,25 @@ func ensureOwnerAccess(tx *gorm.DB, companyID, userID uuid.UUID) error {
 		}).
 		FirstOrCreate(&role).Error; err != nil {
 		return err
+	}
+
+	accountRoles := []rolesmod.Role{
+		{CompanyID: &companyID, Name: "Founder", Description: "Premium access for the lifetime of the account", IsSystem: true},
+		{CompanyID: &companyID, Name: "Premium Client", Description: "Premium access for 30 paid days before grace period", IsSystem: true},
+		{CompanyID: &companyID, Name: "Free Client", Description: "Grace-period access after premium time has ended", IsSystem: true},
+		{CompanyID: &companyID, Name: "Invalid Client", Description: "Blocked access after premium and free days are consumed", IsSystem: true},
+	}
+	for _, accountRole := range accountRoles {
+		roleSeed := accountRole
+		if err := tx.
+			Where("company_id = ? AND name = ?", companyID, roleSeed.Name).
+			Assign(map[string]any{
+				"description": roleSeed.Description,
+				"is_system":   true,
+			}).
+			FirstOrCreate(&roleSeed).Error; err != nil {
+			return err
+		}
 	}
 
 	if err := tx.Exec(`

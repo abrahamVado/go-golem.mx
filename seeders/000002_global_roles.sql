@@ -27,7 +27,11 @@ AND p.slug IN ('organization:view','project:create','project:view','project:upda
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r JOIN permissions p
 WHERE r.organization_id IS NULL AND r.name = 'Client'
-AND p.slug IN ('organization:view','project:view','task:view','file:view','chat:use');
+AND p.name IN (
+'organization:view','organization:update','member:invite','member:update','member:remove','role:manage',
+'project:create','project:view','project:update','project:delete','task:create','task:view','task:update','task:delete',
+'file:upload','file:view','file:delete','webhook:manage','billing:manage','apikey:manage','audit:view','chat:use'
+);
 
 INSERT IGNORE INTO role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM roles r JOIN permissions p
