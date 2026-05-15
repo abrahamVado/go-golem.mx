@@ -20,6 +20,7 @@ import (
 type Project struct {
 	ID              uuid.UUID `gorm:"type:uuid;primaryKey"`
 	CompanyID       uuid.UUID `gorm:"type:uuid;not null"`
+	TeamID          uuid.UUID `gorm:"type:uuid;not null"`
 	ProjectKey      string    `gorm:"column:project_key"`
 	Name            string
 	Description     string
@@ -141,6 +142,30 @@ type ProjectMember struct {
 
 func (ProjectMember) TableName() string { return "project_members" }
 
+type Team struct {
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey"`
+	CompanyID       uuid.UUID `gorm:"type:uuid;not null"`
+	Name            string
+	Slug            string
+	CreatedByUserID *uuid.UUID `gorm:"column:created_by_user_id"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
+}
+
+func (Team) TableName() string { return "teams" }
+
+type TeamMember struct {
+	TeamID         uuid.UUID  `gorm:"column:team_id;primaryKey"`
+	UserID         uuid.UUID  `gorm:"column:user_id;primaryKey"`
+	AddedByUserID  *uuid.UUID `gorm:"column:added_by_user_id"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      gorm.DeletedAt `gorm:"index"`
+}
+
+func (TeamMember) TableName() string { return "team_members" }
+
 type Repository struct{ db *gorm.DB }
 
 func NewRepository(db *gorm.DB) *Repository { return &Repository{db: db} }
@@ -160,6 +185,21 @@ type projectCreateRequest struct {
 	SprintSize      *int                       `json:"sprint_size"`
 	SprintStartDate string                     `json:"sprint_start_date"`
 	Members         []projectMembershipPayload `json:"members"`
+}
+
+type teamCreateRequest struct {
+	Name string `json:"name" binding:"required"`
+	Slug string `json:"slug"`
+}
+
+type teamUpdateRequest struct {
+	Name string `json:"name" binding:"required"`
+	Slug string `json:"slug"`
+}
+
+type addTeamMemberRequest struct {
+	Email string `json:"email" binding:"required"`
+	Name  string `json:"name"`
 }
 
 type projectUpdateRequest struct {
@@ -215,6 +255,7 @@ type moveTaskRequest struct {
 
 type projectSummary struct {
 	ID              string `json:"id"`
+	TeamID          string `json:"team_id,omitempty"`
 	Name            string `json:"name"`
 	Description     string `json:"description,omitempty"`
 	Icon            string `json:"icon,omitempty"`
@@ -227,6 +268,14 @@ type memberSummary struct {
 	UserID string `json:"user_id"`
 	Name   string `json:"name"`
 	Email  string `json:"email"`
+}
+
+type teamSummary struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Slug        string `json:"slug,omitempty"`
+	MemberCount int64  `json:"member_count,omitempty"`
+	ProjectCount int64 `json:"project_count,omitempty"`
 }
 
 type projectMemberSummary struct {
@@ -289,8 +338,12 @@ type taskHydrated struct {
 
 func RegisterRoutes(private *gin.RouterGroup, rbac *rbacmod.Service, h *Handler) {
 	private.GET("/teams", middleware.RequirePermission(rbac, "organization:view"), h.ListTeams)
+	private.POST("/teams", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "organization:update"), h.CreateTeam)
+	private.PUT("/teams/:id", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "organization:update"), h.UpdateTeam)
+	private.DELETE("/teams/:id", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "organization:update"), h.DeleteTeam)
 	private.GET("/teams/:id/projects", middleware.RequirePermission(rbac, "project:view"), h.ListProjectsForTeam)
 	private.GET("/teams/:id/members", middleware.RequirePermission(rbac, "organization:view"), h.ListTeamMembers)
+	private.POST("/teams/:id/members", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "member:invite"), h.AddTeamMember)
 	private.GET("/projects", middleware.RequirePermission(rbac, "project:view"), h.ListProjects)
 	private.POST("/projects", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "project:create"), h.CreateProject)
 	private.GET("/projects/:id", middleware.RequirePermission(rbac, "project:view"), h.GetProject)
@@ -310,25 +363,86 @@ func RegisterRoutes(private *gin.RouterGroup, rbac *rbacmod.Service, h *Handler)
 
 func (h *Handler) ListTeams(c *gin.Context) {
 	companyID := tenancy.CompanyID(c)
-	company, err := h.svc.repo.getCompany(companyID)
+	teams, err := h.svc.repo.listTeams(companyID)
 	if err != nil {
-		response.Internal(c, "Failed to load company")
+		response.Internal(c, "Failed to load teams")
 		return
 	}
-	response.OK(c, []gin.H{{
-		"id":   company.ID.String(),
-		"name": company.Name,
-		"slug": company.Slug,
-	}})
+	out := make([]teamSummary, 0, len(teams))
+	for _, team := range teams {
+		out = append(out, teamSummary{
+			ID: team.ID.String(),
+			Name: team.Name,
+			Slug: team.Slug,
+			MemberCount: team.MemberCount,
+			ProjectCount: team.ProjectCount,
+		})
+	}
+	response.OK(c, out)
+}
+
+func (h *Handler) CreateTeam(c *gin.Context) {
+	var req teamCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid team payload")
+		return
+	}
+	team, err := h.svc.createTeam(tenancy.CompanyID(c), tenancy.UserID(c), req)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Created(c, toTeamSummary(team))
+}
+
+func (h *Handler) UpdateTeam(c *gin.Context) {
+	teamID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid team id")
+		return
+	}
+	var req teamUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid team payload")
+		return
+	}
+	team, err := h.svc.updateTeam(tenancy.CompanyID(c), teamID, req)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Team not found")
+			return
+		}
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.OK(c, toTeamSummary(team))
+}
+
+func (h *Handler) DeleteTeam(c *gin.Context) {
+	teamID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid team id")
+		return
+	}
+	if err := h.svc.deleteTeam(tenancy.CompanyID(c), teamID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Team not found")
+			return
+		}
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"status": "deleted"})
 }
 
 func (h *Handler) ListTeamMembers(c *gin.Context) {
 	companyID := tenancy.CompanyID(c)
-	if c.Param("id") != companyID.String() {
-		response.Forbidden(c, "Team not available")
+	teamID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid team id")
 		return
 	}
-	members, err := h.svc.repo.listMembers(companyID)
+	members, err := h.svc.repo.listMembersForTeam(companyID, teamID)
 	if err != nil {
 		response.Internal(c, "Failed to load members")
 		return
@@ -346,19 +460,25 @@ func (h *Handler) ListTeamMembers(c *gin.Context) {
 
 func (h *Handler) ListProjectsForTeam(c *gin.Context) {
 	companyID := tenancy.CompanyID(c)
-	if c.Param("id") != companyID.String() {
-		response.Forbidden(c, "Team not available")
+	teamID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid team id")
 		return
 	}
-	h.respondProjects(c, companyID)
+	h.respondProjects(c, companyID, &teamID)
 }
 
 func (h *Handler) ListProjects(c *gin.Context) {
-	h.respondProjects(c, tenancy.CompanyID(c))
+	teamID, err := h.svc.resolveRequestedTeamID(tenancy.CompanyID(c), c.GetHeader("X-Team-ID"))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	h.respondProjects(c, tenancy.CompanyID(c), teamID)
 }
 
-func (h *Handler) respondProjects(c *gin.Context, companyID uuid.UUID) {
-	projects, err := h.svc.repo.listProjects(companyID, tenancy.UserID(c))
+func (h *Handler) respondProjects(c *gin.Context, companyID uuid.UUID, teamID *uuid.UUID) {
+	projects, err := h.svc.repo.listProjects(companyID, tenancy.UserID(c), teamID)
 	if err != nil {
 		response.Internal(c, "Failed to load projects")
 		return
@@ -367,6 +487,7 @@ func (h *Handler) respondProjects(c *gin.Context, companyID uuid.UUID) {
 	for _, project := range projects {
 		out = append(out, projectSummary{
 			ID:          project.ID.String(),
+			TeamID:      project.TeamID.String(),
 			Name:        project.Name,
 			Description: project.Description,
 			Icon:        project.Icon,
@@ -380,13 +501,37 @@ func (h *Handler) respondProjects(c *gin.Context, companyID uuid.UUID) {
 	response.OK(c, out)
 }
 
+func (h *Handler) AddTeamMember(c *gin.Context) {
+	teamID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid team id")
+		return
+	}
+	var req addTeamMemberRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid team member payload")
+		return
+	}
+	member, err := h.svc.addTeamMember(tenancy.CompanyID(c), tenancy.UserID(c), teamID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			response.NotFound(c, "Team not found")
+		default:
+			response.BadRequest(c, err.Error())
+		}
+		return
+	}
+	response.Created(c, member)
+}
+
 func (h *Handler) CreateProject(c *gin.Context) {
 	var req projectCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid project payload")
 		return
 	}
-	project, err := h.svc.createProject(tenancy.CompanyID(c), tenancy.UserID(c), req)
+	project, err := h.svc.createProject(tenancy.CompanyID(c), tenancy.UserID(c), c.GetHeader("X-Team-ID"), req)
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
@@ -676,27 +821,74 @@ func (h *Handler) DeleteColumn(c *gin.Context) {
 	response.OK(c, gin.H{"status": "deleted"})
 }
 
-type Company struct {
-	ID   uuid.UUID
-	Name string
-	Slug string
+type teamListRow struct {
+	Team
+	MemberCount int64 `gorm:"column:member_count"`
+	ProjectCount int64 `gorm:"column:project_count"`
 }
 
-func (r *Repository) getCompany(companyID uuid.UUID) (Company, error) {
-	var company Company
-	err := r.db.Table("companies").Where("id = ? AND deleted_at IS NULL", companyID).First(&company).Error
-	return company, err
-}
-
-func (r *Repository) listMembers(companyID uuid.UUID) ([]users.User, error) {
+func (r *Repository) listAllCompanyMembers(companyID uuid.UUID) ([]users.User, error) {
 	var members []users.User
 	err := r.db.Where("company_id = ? AND deleted_at IS NULL AND status = ?", companyID, "active").Order("name asc").Find(&members).Error
 	return members, err
 }
 
-func (r *Repository) listProjects(companyID, userID uuid.UUID) ([]Project, error) {
+func (r *Repository) listTeams(companyID uuid.UUID) ([]teamListRow, error) {
+	var teams []teamListRow
+	err := r.db.Table("teams t").
+		Select(`
+			t.*,
+			COUNT(DISTINCT tm.user_id) AS member_count,
+			COUNT(DISTINCT p.id) AS project_count
+		`).
+		Joins("LEFT JOIN team_members tm ON tm.team_id = t.id AND tm.deleted_at IS NULL").
+		Joins("LEFT JOIN projects p ON p.team_id = t.id AND p.deleted_at IS NULL").
+		Where("t.company_id = ? AND t.deleted_at IS NULL", companyID).
+		Group("t.id").
+		Order("t.created_at asc, t.name asc").
+		Scan(&teams).Error
+	return teams, err
+}
+
+func (r *Repository) getTeam(companyID, teamID uuid.UUID) (Team, error) {
+	var team Team
+	err := r.db.Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, teamID).First(&team).Error
+	return team, err
+}
+
+func (r *Repository) firstTeam(companyID uuid.UUID) (Team, error) {
+	var team Team
+	err := r.db.Where("company_id = ? AND deleted_at IS NULL", companyID).Order("created_at asc, name asc").First(&team).Error
+	return team, err
+}
+
+func (r *Repository) listMembersForTeam(companyID, teamID uuid.UUID) ([]users.User, error) {
+	if _, err := r.getTeam(companyID, teamID); err != nil {
+		return nil, err
+	}
+	var members []users.User
+	err := r.db.Table("team_members tm").
+		Select("u.*").
+		Joins("JOIN users u ON u.id = tm.user_id").
+		Where("tm.team_id = ? AND tm.deleted_at IS NULL", teamID).
+		Where("u.company_id = ? AND u.deleted_at IS NULL AND u.status = ?", companyID, "active").
+		Order("u.name asc, u.email asc").
+		Scan(&members).Error
+	return members, err
+}
+
+func (r *Repository) findUserByEmail(companyID uuid.UUID, email string) (users.User, error) {
+	var user users.User
+	err := r.db.Where("company_id = ? AND LOWER(email) = ? AND deleted_at IS NULL", companyID, strings.ToLower(strings.TrimSpace(email))).First(&user).Error
+	return user, err
+}
+
+func (r *Repository) listProjects(companyID, userID uuid.UUID, teamID *uuid.UUID) ([]Project, error) {
 	var projects []Project
 	query := r.db.Where("projects.company_id = ? AND projects.deleted_at IS NULL", companyID)
+	if teamID != nil {
+		query = query.Where("projects.team_id = ?", *teamID)
+	}
 	if !r.userCanManageAllProjects(companyID, userID) {
 		query = query.Joins(
 			"JOIN project_members pm ON pm.project_id = projects.id AND pm.user_id = ? AND pm.deleted_at IS NULL",
@@ -739,6 +931,7 @@ func slugify(input string) string {
 func toProjectSummary(project Project) projectSummary {
 	summary := projectSummary{
 		ID:          project.ID.String(),
+		TeamID:      project.TeamID.String(),
 		Name:        project.Name,
 		Description: project.Description,
 		Icon:        project.Icon,
@@ -749,6 +942,14 @@ func toProjectSummary(project Project) projectSummary {
 		summary.SprintStartDate = project.SprintStartDate.Format("2006-01-02")
 	}
 	return summary
+}
+
+func toTeamSummary(team Team) teamSummary {
+	return teamSummary{
+		ID: team.ID.String(),
+		Name: team.Name,
+		Slug: team.Slug,
+	}
 }
 
 func parseProjectDate(value string) (*time.Time, error) {
@@ -772,6 +973,38 @@ func normalizeProjectRole(value string) string {
 	}
 }
 
+func normalizeTeamSlug(name, provided string) string {
+	if slug := slugify(provided); slug != "" {
+		return slug
+	}
+	return slugify(name)
+}
+
+func (s *Service) resolveRequestedTeamID(companyID uuid.UUID, rawTeamID string) (*uuid.UUID, error) {
+	rawTeamID = strings.TrimSpace(rawTeamID)
+	if rawTeamID == "" {
+		team, err := s.repo.firstTeam(companyID)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.New("no teams are available")
+			}
+			return nil, err
+		}
+		return &team.ID, nil
+	}
+	teamID, err := uuid.Parse(rawTeamID)
+	if err != nil {
+		return nil, errors.New("invalid team id")
+	}
+	if _, err := s.repo.getTeam(companyID, teamID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("team not found")
+		}
+		return nil, err
+	}
+	return &teamID, nil
+}
+
 func (s *Service) ensureProjectAccess(tx *gorm.DB, companyID, userID, projectID uuid.UUID) (Project, error) {
 	var project Project
 	if err := tx.Where("id = ? AND company_id = ? AND deleted_at IS NULL", projectID, companyID).First(&project).Error; err != nil {
@@ -788,6 +1021,137 @@ func (s *Service) ensureProjectAccess(tx *gorm.DB, companyID, userID, projectID 
 		return Project{}, errors.New("project not available")
 	}
 	return project, nil
+}
+
+func (s *Service) createTeam(companyID, userID uuid.UUID, req teamCreateRequest) (Team, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return Team{}, errors.New("team name is required")
+	}
+	slug := normalizeTeamSlug(name, req.Slug)
+	if slug == "" {
+		return Team{}, errors.New("team slug is required")
+	}
+	team := Team{
+		ID: uuid.New(),
+		CompanyID: companyID,
+		Name: name,
+		Slug: slug,
+		CreatedByUserID: &userID,
+	}
+	err := s.repo.db.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&Team{}).
+			Where("company_id = ? AND slug = ? AND deleted_at IS NULL", companyID, slug).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("team slug already exists")
+		}
+		if err := tx.Create(&team).Error; err != nil {
+			return err
+		}
+		return tx.Exec(`
+			INSERT INTO team_members (team_id, user_id, added_by_user_id, created_at, updated_at, deleted_at)
+			VALUES (?, ?, ?, NOW(), NOW(), NULL)
+			ON CONFLICT (team_id, user_id)
+			DO UPDATE SET deleted_at = NULL, updated_at = NOW()
+		`, team.ID, userID, userID).Error
+	})
+	return team, err
+}
+
+func (s *Service) updateTeam(companyID, teamID uuid.UUID, req teamUpdateRequest) (Team, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return Team{}, errors.New("team name is required")
+	}
+	slug := normalizeTeamSlug(name, req.Slug)
+	if slug == "" {
+		return Team{}, errors.New("team slug is required")
+	}
+	var team Team
+	err := s.repo.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, teamID).First(&team).Error; err != nil {
+			return err
+		}
+		var count int64
+		if err := tx.Model(&Team{}).
+			Where("company_id = ? AND slug = ? AND id <> ? AND deleted_at IS NULL", companyID, slug, teamID).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return errors.New("team slug already exists")
+		}
+		team.Name = name
+		team.Slug = slug
+		return tx.Save(&team).Error
+	})
+	return team, err
+}
+
+func (s *Service) deleteTeam(companyID, teamID uuid.UUID) error {
+	return s.repo.db.Transaction(func(tx *gorm.DB) error {
+		var team Team
+		if err := tx.Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, teamID).First(&team).Error; err != nil {
+			return err
+		}
+		var teamCount int64
+		if err := tx.Model(&Team{}).Where("company_id = ? AND deleted_at IS NULL", companyID).Count(&teamCount).Error; err != nil {
+			return err
+		}
+		if teamCount <= 1 {
+			return errors.New("at least one team must remain")
+		}
+		var projectCount int64
+		if err := tx.Model(&Project{}).Where("company_id = ? AND team_id = ? AND deleted_at IS NULL", companyID, teamID).Count(&projectCount).Error; err != nil {
+			return err
+		}
+		if projectCount > 0 {
+			return errors.New("move or delete team projects before deleting this team")
+		}
+		if err := tx.Where("team_id = ? AND deleted_at IS NULL", teamID).Delete(&TeamMember{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&team).Error
+	})
+}
+
+func (s *Service) addTeamMember(companyID, actorUserID, teamID uuid.UUID, req addTeamMemberRequest) (memberSummary, error) {
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" {
+		return memberSummary{}, errors.New("member email is required")
+	}
+	var created memberSummary
+	err := s.repo.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := s.repo.getTeam(companyID, teamID); err != nil {
+			return err
+		}
+		user, err := s.repo.findUserByEmail(companyID, email)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("user must already exist in this tenant before being added to a team")
+			}
+			return err
+		}
+		if err := tx.Exec(`
+			INSERT INTO team_members (team_id, user_id, added_by_user_id, created_at, updated_at, deleted_at)
+			VALUES (?, ?, ?, NOW(), NOW(), NULL)
+			ON CONFLICT (team_id, user_id)
+			DO UPDATE SET deleted_at = NULL, updated_at = NOW()
+		`, teamID, user.ID, actorUserID).Error; err != nil {
+			return err
+		}
+		created = memberSummary{
+			UserID: user.ID.String(),
+			Name: user.Name,
+			Email: user.Email,
+		}
+		return nil
+	})
+	return created, err
 }
 
 func (s *Service) ensureProjectAdmin(tx *gorm.DB, companyID, userID, projectID uuid.UUID) (Project, error) {
@@ -808,7 +1172,7 @@ func (s *Service) ensureProjectAdmin(tx *gorm.DB, companyID, userID, projectID u
 	return project, nil
 }
 
-func (s *Service) createProject(companyID, userID uuid.UUID, req projectCreateRequest) (Project, error) {
+func (s *Service) createProject(companyID, userID uuid.UUID, rawTeamID string, req projectCreateRequest) (Project, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return Project{}, errors.New("project name is required")
@@ -827,6 +1191,7 @@ func (s *Service) createProject(companyID, userID uuid.UUID, req projectCreateRe
 	project := Project{
 		ID:              uuid.New(),
 		CompanyID:       companyID,
+		TeamID:          uuid.Nil,
 		ProjectKey:      keyBase,
 		Name:            name,
 		Description:     strings.TrimSpace(req.Description),
@@ -836,6 +1201,11 @@ func (s *Service) createProject(companyID, userID uuid.UUID, req projectCreateRe
 		SprintStartDate: sprintStartDate,
 		CreatedByUserID: &userID,
 	}
+	teamID, err := s.resolveRequestedTeamID(companyID, rawTeamID)
+	if err != nil {
+		return Project{}, err
+	}
+	project.TeamID = *teamID
 	err = s.repo.db.Transaction(func(tx *gorm.DB) error {
 		project.ProjectKey = s.nextProjectKey(tx, companyID, project.ProjectKey)
 		if err := tx.Create(&project).Error; err != nil {
@@ -1027,7 +1397,7 @@ func (s *Service) updateProjectMembers(companyID, userID, projectID uuid.UUID, m
 }
 
 func (s *Service) replaceProjectMembers(tx *gorm.DB, companyID, userID uuid.UUID, project Project, members []projectMembershipPayload) ([]projectMemberSummary, error) {
-	allowedMembers, err := s.repo.listMembers(companyID)
+	allowedMembers, err := s.repo.listAllCompanyMembers(companyID)
 	if err != nil {
 		return nil, err
 	}
