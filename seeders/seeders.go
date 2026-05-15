@@ -70,12 +70,15 @@ func Run(db *gorm.DB, cfg config.Config) error {
 			}).Error; err != nil {
 				return err
 			}
-			if err := ensureOwnerAccess(tx, company.ID, user.ID); err != nil {
-				return err
-			}
-			if !cfg.SeedDemoData {
-				return nil
-			}
+		if err := ensureOwnerAccess(tx, company.ID, user.ID); err != nil {
+			return err
+		}
+		if err := ensureDefaultTeam(tx, company.ID, company.Name, company.Slug, user.ID); err != nil {
+			return err
+		}
+		if !cfg.SeedDemoData {
+			return nil
+		}
 			return seedDashboardDemoData(tx, cfg, company.ID, user.ID)
 		}
 
@@ -99,6 +102,9 @@ func Run(db *gorm.DB, cfg config.Config) error {
 		if err := ensureOwnerAccess(tx, company.ID, user.ID); err != nil {
 			return err
 		}
+		if err := ensureDefaultTeam(tx, company.ID, company.Name, company.Slug, user.ID); err != nil {
+			return err
+		}
 
 		if !cfg.SeedDemoData {
 			return nil
@@ -106,6 +112,30 @@ func Run(db *gorm.DB, cfg config.Config) error {
 
 		return seedDashboardDemoData(tx, cfg, company.ID, user.ID)
 	})
+}
+
+func ensureDefaultTeam(tx *gorm.DB, companyID uuid.UUID, companyName, companySlug string, userID uuid.UUID) error {
+	return tx.Exec(`
+		WITH ensured_team AS (
+			INSERT INTO teams (id, company_id, name, slug, created_by_user_id, created_at, updated_at, deleted_at)
+			VALUES (gen_random_uuid(), ?, ?, ?, ?, NOW(), NOW(), NULL)
+			ON CONFLICT DO NOTHING
+			RETURNING id
+		),
+		target_team AS (
+			SELECT id FROM ensured_team
+			UNION ALL
+			SELECT t.id
+			FROM teams t
+			WHERE t.company_id = ? AND t.slug = ? AND t.deleted_at IS NULL
+			LIMIT 1
+		)
+		INSERT INTO team_members (team_id, user_id, added_by_user_id, created_at, updated_at, deleted_at)
+		SELECT target_team.id, ?, ?, NOW(), NOW(), NULL
+		FROM target_team
+		ON CONFLICT (team_id, user_id)
+		DO UPDATE SET deleted_at = NULL, updated_at = NOW()
+	`, companyID, companyName, companySlug, userID, companyID, companySlug, userID, userID).Error
 }
 
 func ensurePlatformPermissions(tx *gorm.DB) error {

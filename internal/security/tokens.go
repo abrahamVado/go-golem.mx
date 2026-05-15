@@ -12,7 +12,7 @@ const AccessTokenTTL = 15 * time.Minute
 
 type AccessClaims struct {
 	UserID    uuid.UUID  `json:"user_id"`
-	CompanyID uuid.UUID `json:"company_id"`
+	CompanyID uuid.UUID  `json:"company_id"`
 	BranchID  *uuid.UUID `json:"branch_id,omitempty"`
 	TokenType string     `json:"token_type"`
 
@@ -69,6 +69,61 @@ func ParseAccessToken(secret string, rawToken string) (*AccessClaims, error) {
 	}
 
 	if claims.UserID == uuid.Nil || claims.CompanyID == uuid.Nil {
+		return nil, errors.New("missing required claims")
+	}
+
+	return claims, nil
+}
+
+type PasswordResetClaims struct {
+	UserID    uuid.UUID `json:"user_id"`
+	CompanyID uuid.UUID `json:"company_id"`
+	Email     string    `json:"email"`
+	TokenType string    `json:"token_type"`
+
+	jwt.RegisteredClaims
+}
+
+func NewPasswordResetToken(secret string, ttl time.Duration, userID, companyID uuid.UUID, email string) (string, error) {
+	now := time.Now()
+
+	claims := PasswordResetClaims{
+		UserID:    userID,
+		CompanyID: companyID,
+		Email:     email,
+		TokenType: "password_reset",
+		RegisteredClaims: jwt.RegisteredClaims{
+			Issuer:    "go-paladin.mx",
+			Subject:   userID.String(),
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(secret))
+}
+
+func ParsePasswordResetToken(secret string, rawToken string) (*PasswordResetClaims, error) {
+	token, err := jwt.ParseWithClaims(rawToken, &PasswordResetClaims{}, func(token *jwt.Token) (any, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, errors.New("invalid signing method")
+		}
+
+		return []byte(secret), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	claims, ok := token.Claims.(*PasswordResetClaims)
+	if !ok || !token.Valid {
+		return nil, errors.New("invalid token claims")
+	}
+	if claims.TokenType != "password_reset" {
+		return nil, errors.New("invalid token type")
+	}
+	if claims.UserID == uuid.Nil || claims.CompanyID == uuid.Nil || claims.Email == "" {
 		return nil, errors.New("missing required claims")
 	}
 
