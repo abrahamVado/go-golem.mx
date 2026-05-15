@@ -11,12 +11,15 @@ import (
 	"strings"
 	"time"
 
+	auditmod "github.com/abrahamVado/go-paladin.mx/internal/modules/audit"
 	companiesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/companies"
 	rolesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/roles"
 	"github.com/abrahamVado/go-paladin.mx/internal/modules/users"
 	"github.com/abrahamVado/go-paladin.mx/internal/platform/config"
+	"github.com/abrahamVado/go-paladin.mx/internal/platform/mail"
 	"github.com/abrahamVado/go-paladin.mx/internal/security"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // -----------------------------------------------------------------------------
@@ -58,21 +61,26 @@ var (
 	ErrRegisterNameRequired   = errors.New("name is required")
 	ErrRegisterEmailExists    = errors.New("a user with this email already exists")
 	ErrAccountBlocked         = errors.New("your premium and grace periods have ended; renew your plan to continue")
+	ErrResetTokenInvalid      = errors.New("invalid or expired reset token")
 )
 
 type Service struct {
-	repo *Repository
-	cfg  config.Config
+	repo   *Repository
+	cfg    config.Config
+	mailer mail.Sender
+	audit  *auditmod.Repository
 }
 
 // NewService creates the authentication service.
 //
 // Config is injected because token TTLs, secrets, bcrypt cost, and cookie
 // behavior are runtime settings.
-func NewService(r *Repository, cfg config.Config) *Service {
+func NewService(r *Repository, cfg config.Config, mailer mail.Sender, auditRepo *auditmod.Repository) *Service {
 	return &Service{
-		repo: r,
-		cfg:  cfg,
+		repo:   r,
+		cfg:    cfg,
+		mailer: mailer,
+		audit:  auditRepo,
 	}
 }
 
@@ -97,21 +105,25 @@ func NewService(r *Repository, cfg config.Config) *Service {
 func (s *Service) Login(
 	email string,
 	password string,
+	companySlug string,
 	ip string,
 	ua string,
 ) (AuthResponse, string, error) {
 	email = normalizeEmail(email)
+	companySlug = strings.TrimSpace(strings.ToLower(companySlug))
 
 	if email == "" || password == "" {
 		return AuthResponse{}, "", ErrInvalidCredentials
 	}
 
-	user, err := s.repo.FindUserByEmail(email)
+	user, err := s.repo.FindUserByEmailAndCompanySlug(email, companySlug)
 	if err != nil {
+		s.auditAuthFailure(nil, "login_failed", ip, ua, map[string]any{"email": email, "company_slug": companySlug})
 		return AuthResponse{}, "", ErrInvalidCredentials
 	}
 
 	if !security.CheckPassword(user.PasswordHash, password) {
+		s.auditAuthFailure(&user.CompanyID, "login_failed", ip, ua, map[string]any{"user_id": user.ID.String(), "email": email})
 		return AuthResponse{}, "", ErrInvalidCredentials
 	}
 
@@ -124,6 +136,7 @@ func (s *Service) Login(
 		user.BlockedAt = snapshot.BlockedAt
 	}
 	if snapshot.IsBlocked {
+		s.auditAuthFailure(&user.CompanyID, "login_blocked", ip, ua, map[string]any{"user_id": user.ID.String(), "email": email})
 		return AuthResponse{}, "", ErrAccountBlocked
 	}
 
@@ -158,6 +171,8 @@ func (s *Service) Login(
 	if err != nil {
 		return AuthResponse{}, "", err
 	}
+
+	s.auditAuthSuccess(user.CompanyID, &user.ID, "login_succeeded", ip, ua, map[string]any{"email": user.Email, "company_slug": companySlug})
 
 	return AuthResponse{
 		AccessToken: accessToken,
@@ -243,6 +258,8 @@ func (s *Service) Refresh(
 	if err := s.repo.RevokeRefreshToken(oldHash, &newRefreshHash); err != nil {
 		return AuthResponse{}, "", err
 	}
+
+	s.auditAuthSuccess(refreshRecord.CompanyID, &refreshRecord.UserID, "refresh_succeeded", ip, ua, nil)
 
 	return AuthResponse{
 		AccessToken: accessToken,
@@ -369,9 +386,53 @@ func (s *Service) Register(req RegisterRequest) (uuid.UUID, error) {
 // Always return nil, even if the email does not exist.
 // This prevents account enumeration.
 func (s *Service) Recover(email string) error {
-	_ = normalizeEmail(email)
+	email = normalizeEmail(email)
+	if email == "" {
+		return nil
+	}
 
-	return nil
+	user, err := s.repo.FindUserByEmail(email)
+	if err != nil {
+		return nil
+	}
+	if s.mailer == nil || !s.mailer.Enabled() {
+		return nil
+	}
+
+	token, err := security.NewOpaqueToken(32)
+	if err != nil {
+		return err
+	}
+	tokenHash := security.HashToken(token)
+	if err := s.repo.SavePasswordResetToken(&PasswordResetToken{
+		UserID:    user.ID,
+		CompanyID: user.CompanyID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().UTC().Add(s.cfg.PasswordResetTTL),
+	}); err != nil {
+		return err
+	}
+	s.auditAuthSuccess(user.CompanyID, &user.ID, "password_reset_requested", "", "", map[string]any{"email": user.Email})
+
+	resetURL := fmt.Sprintf("%s/reset-password?token=%s", strings.TrimRight(s.cfg.FrontendURL, "/"), token)
+	companySlug, err := s.repo.FindCompanySlugByID(user.CompanyID)
+	if err != nil {
+		return err
+	}
+	htmlBody := fmt.Sprintf(
+		"<p>Hello %s,</p><p>We received a password reset request for <strong>%s</strong>.</p><p><a href=\"%s\">Reset your password</a></p><p>If you did not request this, you can ignore this email.</p>",
+		user.Name,
+		companySlug,
+		resetURL,
+	)
+	textBody := fmt.Sprintf(
+		"Hello %s,\n\nWe received a password reset request for %s.\n\nReset your password here: %s\n\nIf you did not request this, you can ignore this email.\n",
+		user.Name,
+		companySlug,
+		resetURL,
+	)
+
+	return s.mailer.Send([]string{user.Email}, "Reset your Paladin password", htmlBody, textBody)
 }
 
 // Reset completes password reset.
@@ -386,6 +447,37 @@ func (s *Service) Recover(email string) error {
 //   - revoke reset token
 //   - revoke existing refresh sessions
 func (s *Service) Reset(token string, password string) error {
+	token = strings.TrimSpace(token)
+	password = strings.TrimSpace(password)
+	if token == "" {
+		return ErrResetTokenInvalid
+	}
+	if err := security.ValidatePassword(password); err != nil {
+		return err
+	}
+
+	tokenHash := security.HashToken(token)
+	resetToken, err := s.repo.FindActivePasswordResetToken(tokenHash)
+	if err != nil {
+		return ErrResetTokenInvalid
+	}
+
+	user, err := s.repo.FindUserByID(resetToken.CompanyID, resetToken.UserID)
+	if err != nil {
+		return ErrResetTokenInvalid
+	}
+
+	hash, err := security.HashPassword(password, s.cfg.BcryptCost)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.UpdatePasswordConsumeResetTokenAndRevokeSessions(resetToken.ID, resetToken.CompanyID, resetToken.UserID, hash); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrResetTokenInvalid
+		}
+		return err
+	}
+	s.auditAuthSuccess(resetToken.CompanyID, &resetToken.UserID, "password_reset_completed", "", "", nil)
 	return nil
 }
 
@@ -396,6 +488,7 @@ type MeResponse struct {
 	Name                 string     `json:"name"`
 	Email                string     `json:"email"`
 	Role                 string     `json:"role,omitempty"`
+	PermissionNames      []string   `json:"permission_names,omitempty"`
 	AvatarURL            string     `json:"avatar_url,omitempty"`
 	AccountType          string     `json:"account_type"`
 	IsPremium            bool       `json:"is_premium"`
@@ -418,7 +511,12 @@ func (s *Service) Me(companyID, userID uuid.UUID) (MeResponse, error) {
 		return MeResponse{}, err
 	}
 
-	return toMeResponse(user, role), nil
+	permissionNames, err := s.repo.FindPermissionNames(companyID, userID)
+	if err != nil {
+		return MeResponse{}, err
+	}
+
+	return toMeResponse(user, role, permissionNames), nil
 }
 
 func (s *Service) UpdateMe(companyID, userID uuid.UUID, req MeUpdateRequest) (MeResponse, error) {
@@ -437,7 +535,12 @@ func (s *Service) UpdateMe(companyID, userID uuid.UUID, req MeUpdateRequest) (Me
 		return MeResponse{}, err
 	}
 
-	return toMeResponse(user, role), nil
+	permissionNames, err := s.repo.FindPermissionNames(companyID, userID)
+	if err != nil {
+		return MeResponse{}, err
+	}
+
+	return toMeResponse(user, role, permissionNames), nil
 }
 
 func (s *Service) ChangeMyPassword(companyID, userID uuid.UUID, req ChangeMyPasswordRequest) error {
@@ -460,7 +563,40 @@ func (s *Service) ChangeMyPassword(companyID, userID uuid.UUID, req ChangeMyPass
 		return err
 	}
 
-	return s.repo.UpdateMyPassword(companyID, userID, hash)
+	if err := s.repo.UpdatePasswordAndRevokeSessions(companyID, userID, hash); err != nil {
+		return err
+	}
+	s.auditAuthSuccess(companyID, &userID, "password_changed", "", "", nil)
+	return nil
+}
+
+func (s *Service) auditAuthSuccess(companyID uuid.UUID, userID *uuid.UUID, action string, ip string, ua string, metadata map[string]any) {
+	if s.audit == nil {
+		return
+	}
+	_ = s.audit.Create(auditmod.AuditLog{
+		CompanyID: companyID,
+		UserID:    userID,
+		Action:    action,
+		Resource:  "auth",
+		IPAddress: ip,
+		UserAgent: ua,
+		Metadata:  auditmod.JSONMetadata(metadata),
+	})
+}
+
+func (s *Service) auditAuthFailure(companyID *uuid.UUID, action string, ip string, ua string, metadata map[string]any) {
+	if s.audit == nil || companyID == nil {
+		return
+	}
+	_ = s.audit.Create(auditmod.AuditLog{
+		CompanyID: *companyID,
+		Action:    action,
+		Resource:  "auth",
+		IPAddress: ip,
+		UserAgent: ua,
+		Metadata:  auditmod.JSONMetadata(metadata),
+	})
 }
 
 func (s *Service) UpdateMyAvatar(companyID, userID uuid.UUID, header *multipart.FileHeader) (MeResponse, error) {
@@ -479,10 +615,15 @@ func (s *Service) UpdateMyAvatar(companyID, userID uuid.UUID, header *multipart.
 		return MeResponse{}, err
 	}
 
-	return toMeResponse(user, role), nil
+	permissionNames, err := s.repo.FindPermissionNames(companyID, userID)
+	if err != nil {
+		return MeResponse{}, err
+	}
+
+	return toMeResponse(user, role, permissionNames), nil
 }
 
-func toMeResponse(user users.User, role string) MeResponse {
+func toMeResponse(user users.User, role string, permissionNames []string) MeResponse {
 	snapshot := users.ResolveAccountSnapshot(user, time.Now().UTC())
 	return MeResponse{
 		UserID:               user.ID,
@@ -491,6 +632,7 @@ func toMeResponse(user users.User, role string) MeResponse {
 		Name:                 user.Name,
 		Email:                user.Email,
 		Role:                 role,
+		PermissionNames:      permissionNames,
 		AvatarURL:            user.AvatarURL,
 		AccountType:          snapshot.Type,
 		IsPremium:            snapshot.IsPremium,
