@@ -64,6 +64,20 @@ type RefreshToken struct {
 	CreatedAt time.Time
 }
 
+type PasswordResetToken struct {
+	ID uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+
+	UserID    uuid.UUID `gorm:"not null;index"`
+	CompanyID uuid.UUID `gorm:"not null;index"`
+
+	TokenHash string `gorm:"not null;uniqueIndex"`
+
+	ExpiresAt time.Time  `gorm:"not null;index"`
+	UsedAt    *time.Time `gorm:"index"`
+
+	CreatedAt time.Time
+}
+
 // Repository provides database access for the auth module.
 type Repository struct {
 	DB *gorm.DB
@@ -88,7 +102,7 @@ func (r *Repository) FindUserByEmail(email string) (users.User, error) {
 
 	err := r.DB.
 		Where(
-			"email = ? AND status = ?",
+			"email = ? AND status = ? AND deleted_at IS NULL",
 			email,
 			"active",
 		).
@@ -96,6 +110,96 @@ func (r *Repository) FindUserByEmail(email string) (users.User, error) {
 		Error
 
 	return user, err
+}
+
+func (r *Repository) FindUserByEmailAndCompanySlug(email string, companySlug string) (users.User, error) {
+	var user users.User
+
+	query := r.DB.Model(&users.User{}).
+		Joins("JOIN companies c ON c.id = users.company_id").
+		Where("users.email = ? AND users.status = ? AND users.deleted_at IS NULL AND c.deleted_at IS NULL", email, "active")
+
+	if companySlug != "" {
+		query = query.Where("c.slug = ?", companySlug)
+	}
+
+	err := query.First(&user).Error
+	return user, err
+}
+
+func (r *Repository) SavePasswordResetToken(token *PasswordResetToken) error {
+	return r.DB.Create(token).Error
+}
+
+func (r *Repository) FindActivePasswordResetToken(hash string) (PasswordResetToken, error) {
+	var token PasswordResetToken
+	err := r.DB.
+		Where("token_hash = ? AND used_at IS NULL AND expires_at > ?", hash, time.Now().UTC()).
+		First(&token).
+		Error
+	return token, err
+}
+
+func (r *Repository) MarkPasswordResetTokenUsed(id uuid.UUID) error {
+	now := time.Now().UTC()
+	return r.DB.Model(&PasswordResetToken{}).
+		Where("id = ? AND used_at IS NULL", id).
+		Update("used_at", &now).
+		Error
+}
+
+func (r *Repository) UpdatePasswordConsumeResetTokenAndRevokeSessions(
+	resetTokenID uuid.UUID,
+	companyID uuid.UUID,
+	userID uuid.UUID,
+	passwordHash string,
+) error {
+	now := time.Now().UTC()
+
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&PasswordResetToken{}).
+			Where("id = ? AND used_at IS NULL", resetTokenID).
+			Update("used_at", &now)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+
+		if err := tx.Model(&users.User{}).
+			Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, userID).
+			Update("password_hash", passwordHash).
+			Error; err != nil {
+			return err
+		}
+
+		return tx.Model(&RefreshToken{}).
+			Where("company_id = ? AND user_id = ? AND revoked_at IS NULL", companyID, userID).
+			Updates(map[string]any{
+				"revoked_at": &now,
+			}).
+			Error
+	})
+}
+
+func (r *Repository) UpdatePasswordAndRevokeSessions(companyID, userID uuid.UUID, passwordHash string) error {
+	now := time.Now().UTC()
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&users.User{}).
+			Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, userID).
+			Update("password_hash", passwordHash).
+			Error; err != nil {
+			return err
+		}
+
+		return tx.Model(&RefreshToken{}).
+			Where("company_id = ? AND user_id = ? AND revoked_at IS NULL", companyID, userID).
+			Updates(map[string]any{
+				"revoked_at": &now,
+			}).
+			Error
+	})
 }
 
 // SaveRefreshToken stores a hashed refresh token.
@@ -168,6 +272,16 @@ func (r *Repository) RevokeRefreshToken(
 		Error
 }
 
+func (r *Repository) RevokeAllRefreshTokensForUser(companyID, userID uuid.UUID) error {
+	now := time.Now().UTC()
+	return r.DB.Model(&RefreshToken{}).
+		Where("company_id = ? AND user_id = ? AND revoked_at IS NULL", companyID, userID).
+		Updates(map[string]any{
+			"revoked_at": &now,
+		}).
+		Error
+}
+
 func (r *Repository) FindUserByID(companyID, userID uuid.UUID) (users.User, error) {
 	var user users.User
 
@@ -198,6 +312,37 @@ func (r *Repository) FindPrimaryRoleName(companyID, userID uuid.UUID) (string, e
 		return "", err
 	}
 	return strings.TrimSpace(row.Name), nil
+}
+
+func (r *Repository) FindPermissionNames(companyID, userID uuid.UUID) ([]string, error) {
+	type permissionRow struct {
+		Name string `gorm:"column:name"`
+	}
+
+	var rows []permissionRow
+	err := r.DB.
+		Table("user_roles ur").
+		Select("DISTINCT p.name").
+		Joins("JOIN roles r ON r.id = ur.role_id").
+		Joins("JOIN role_permissions rp ON rp.role_id = ur.role_id").
+		Joins("JOIN permissions p ON p.id = rp.permission_id").
+		Where("ur.company_id = ? AND ur.user_id = ? AND ur.deleted_at IS NULL", companyID, userID).
+		Order("p.name ASC").
+		Scan(&rows).
+		Error
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		name := strings.TrimSpace(row.Name)
+		if name == "" {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out, nil
 }
 
 func (r *Repository) UpdateAccountState(companyID, userID uuid.UUID, accountType string, blockedAt *time.Time) error {
@@ -242,6 +387,15 @@ func (r *Repository) UpdateMyPassword(companyID, userID uuid.UUID, passwordHash 
 		Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, userID).
 		Update("password_hash", passwordHash).
 		Error
+}
+
+func (r *Repository) FindCompanySlugByID(companyID uuid.UUID) (string, error) {
+	var company companiesmod.Company
+	err := r.DB.Where("id = ? AND deleted_at IS NULL", companyID).First(&company).Error
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(company.Slug), nil
 }
 
 func (r *Repository) CompanySlugExists(slug string) (bool, error) {
@@ -294,11 +448,26 @@ func (r *Repository) CreateCompanyWithClientUser(company companiesmod.Company, u
 			return err
 		}
 
-		return tx.Exec(`
+		if err := tx.Exec(`
 			INSERT INTO user_roles (user_id, company_id, role_id, deleted_at)
 			VALUES (?, ?, ?, NULL)
 			ON CONFLICT (user_id, company_id, role_id)
 			DO UPDATE SET deleted_at = NULL
-		`, user.ID, company.ID, role.ID).Error
+		`, user.ID, company.ID, role.ID).Error; err != nil {
+			return err
+		}
+
+		return tx.Exec(`
+			WITH created_team AS (
+				INSERT INTO teams (id, company_id, name, slug, created_by_user_id, created_at, updated_at, deleted_at)
+				VALUES (gen_random_uuid(), ?, ?, ?, ?, NOW(), NOW(), NULL)
+				RETURNING id
+			)
+			INSERT INTO team_members (team_id, user_id, added_by_user_id, created_at, updated_at, deleted_at)
+			SELECT created_team.id, ?, ?, NOW(), NOW(), NULL
+			FROM created_team
+			ON CONFLICT (team_id, user_id)
+			DO UPDATE SET deleted_at = NULL, updated_at = NOW()
+		`, company.ID, company.Name, company.Slug, user.ID, user.ID, user.ID).Error
 	})
 }
