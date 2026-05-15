@@ -11,6 +11,9 @@ type LoginRequest struct {
 	Password    string `json:"password" binding:"required"`
 	CompanySlug string `json:"company_slug"`
 }
+type CLIRefreshRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
 type RecoverRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
@@ -35,4 +38,11 @@ type AuthResponse struct {
 type BrowserSessionResponse struct {
 	TokenType string `json:"token_type"`
 	ExpiresIn int64  `json:"expires_in"`
+}
+
+type CLISessionResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int64  `json:"expires_in"`
 }

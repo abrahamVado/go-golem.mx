@@ -160,6 +160,7 @@ func (h *Handler) Login(c *gin.Context) {
 	out, refresh, err := h.svc.Login(
 		req.Email,
 		req.Password,
+		req.CompanySlug,
 		c.ClientIP(),
 		c.GetHeader("User-Agent"),
 	)
@@ -174,6 +175,34 @@ func (h *Handler) Login(c *gin.Context) {
 	response.OK(c, BrowserSessionResponse{
 		TokenType: out.TokenType,
 		ExpiresIn: out.ExpiresIn,
+	})
+}
+
+func (h *Handler) CLILogin(c *gin.Context) {
+	var req LoginRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+
+	out, refresh, err := h.svc.Login(
+		req.Email,
+		req.Password,
+		req.CompanySlug,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		response.Unauthorized(c, "Invalid credentials")
+		return
+	}
+
+	response.OK(c, CLISessionResponse{
+		AccessToken:  out.AccessToken,
+		RefreshToken: refresh,
+		TokenType:    out.TokenType,
+		ExpiresIn:    out.ExpiresIn,
 	})
 }
 
@@ -211,6 +240,32 @@ func (h *Handler) Refresh(c *gin.Context) {
 	})
 }
 
+func (h *Handler) CLIRefresh(c *gin.Context) {
+	var req CLIRefreshRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+
+	out, refresh, err := h.svc.Refresh(
+		req.RefreshToken,
+		c.ClientIP(),
+		c.GetHeader("User-Agent"),
+	)
+	if err != nil {
+		response.Unauthorized(c, "Invalid refresh token")
+		return
+	}
+
+	response.OK(c, CLISessionResponse{
+		AccessToken:  out.AccessToken,
+		RefreshToken: refresh,
+		TokenType:    out.TokenType,
+		ExpiresIn:    out.ExpiresIn,
+	})
+}
+
 // Logout revokes the current refresh token and clears the cookie.
 //
 // Logout should be idempotent:
@@ -232,6 +287,19 @@ func (h *Handler) Logout(c *gin.Context) {
 	})
 }
 
+func (h *Handler) CLILogout(c *gin.Context) {
+	var req CLIRefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+
+	_ = h.svc.Logout(req.RefreshToken)
+	response.OK(c, gin.H{
+		"message": "logged out",
+	})
+}
+
 // Recover starts the password recovery flow.
 //
 // Security rule:
@@ -239,6 +307,15 @@ func (h *Handler) Logout(c *gin.Context) {
 // Always return the same response whether the email exists or not.
 // This prevents account enumeration.
 func (h *Handler) Recover(c *gin.Context) {
+	var req RecoverRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+	if err := h.svc.Recover(req.Email); err != nil {
+		response.Internal(c, "Unable to process recovery request")
+		return
+	}
 	response.OK(c, gin.H{
 		"message": "If the account exists, reset instructions will be sent",
 	})
@@ -253,8 +330,22 @@ func (h *Handler) Recover(c *gin.Context) {
 //   - update password hash
 //   - revoke active sessions
 func (h *Handler) ResetPassword(c *gin.Context) {
+	var req ResetPasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+	if err := h.svc.Reset(req.Token, req.Password); err != nil {
+		switch {
+		case errors.Is(err, ErrResetTokenInvalid):
+			response.Unauthorized(c, err.Error())
+		default:
+			response.BadRequest(c, err.Error())
+		}
+		return
+	}
 	response.OK(c, gin.H{
-		"message": "Password reset scaffolded",
+		"message": "Password reset successfully",
 	})
 }
 

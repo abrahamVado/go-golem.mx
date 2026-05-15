@@ -1,10 +1,10 @@
 package middleware
 
 import (
+	"context"
+	"net/http"
 	"strconv"
 	"time"
-	"context"
-	"net/http"	
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -19,7 +19,7 @@ import (
 //
 //   - trace logs
 //   - debug errors
-//   - connect audit events	
+//   - connect audit events
 //   - expose correlation ID to frontend
 //
 // Header returned:
@@ -184,6 +184,43 @@ func RateLimit() gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+func AuthRateLimit() gin.HandlerFunc {
+	rate := limiter.Rate{
+		Period: time.Minute,
+		Limit:  20,
+	}
+
+	store := memstore.NewStore()
+	l := limiter.New(store, rate)
+
+	return func(c *gin.Context) {
+		key := c.ClientIP() + ":" + c.FullPath()
+		limitContext, err := l.Get(c, key)
+		if err != nil {
+			c.Next()
+			return
+		}
+
+		c.Header("X-RateLimit-Limit", strconv.FormatInt(limitContext.Limit, 10))
+		c.Header("X-RateLimit-Remaining", strconv.FormatInt(limitContext.Remaining, 10))
+		c.Header("X-RateLimit-Reset", strconv.FormatInt(limitContext.Reset, 10))
+
+		if limitContext.Reached {
+			c.AbortWithStatusJSON(429, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "RATE_LIMITED",
+					"message": "Too many authentication requests",
+				},
+			})
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // BodySizeLimit limits the maximum request body size.
 //
 // Example:
