@@ -48,14 +48,22 @@ type Config struct {
 
 	DatabaseURL string
 
-	JWTAccessSecret string
-	JWTAccessTTL    time.Duration
-	RefreshTokenTTL time.Duration
+	JWTAccessSecret  string
+	JWTAccessTTL     time.Duration
+	RefreshTokenTTL  time.Duration
+	PasswordResetTTL time.Duration
 
 	CookieDomain string
 	CookieSecure bool
 
 	BcryptCost int
+
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	MailFrom     string
+	MailEnabled  bool
 
 	DefaultOwnerEmail    string
 	DefaultOwnerPassword string
@@ -129,6 +137,10 @@ func Load() Config {
 			envInt("REFRESH_TOKEN_TTL_DAYS", 30),
 		) * 24 * time.Hour,
 
+		PasswordResetTTL: time.Duration(
+			envInt("PASSWORD_RESET_TTL_MINUTES", 30),
+		) * time.Minute,
+
 		// Cookie configuration
 		CookieDomain: env(
 			"COOKIE_DOMAIN",
@@ -144,6 +156,36 @@ func Load() Config {
 		BcryptCost: envInt(
 			"BCRYPT_COST",
 			12,
+		),
+
+		SMTPHost: env(
+			"SMTP_HOST",
+			"",
+		),
+
+		SMTPPort: envInt(
+			"SMTP_PORT",
+			587,
+		),
+
+		SMTPUsername: env(
+			"SMTP_USERNAME",
+			"",
+		),
+
+		SMTPPassword: env(
+			"SMTP_PASSWORD",
+			"",
+		),
+
+		MailFrom: env(
+			"MAIL_FROM",
+			"",
+		),
+
+		MailEnabled: envBool(
+			"MAIL_ENABLED",
+			false,
 		),
 
 		// Initial bootstrap data
@@ -183,7 +225,6 @@ func Load() Config {
 //
 // The application should crash immediately if configuration is invalid.
 // This prevents running in an unsafe state.
-//
 func validate(cfg Config) {
 
 	// -------------------------------------------------------------------------
@@ -194,7 +235,6 @@ func validate(cfg Config) {
 			"JWT_ACCESS_SECRET must be at least 32 characters",
 		)
 	}
-
 	// -------------------------------------------------------------------------
 	// Production cookie safety
 	// -------------------------------------------------------------------------
@@ -226,6 +266,21 @@ func validate(cfg Config) {
 		panic(
 			"BCRYPT_COST too high; may impact performance",
 		)
+	}
+
+	if cfg.MailEnabled {
+		if cfg.SMTPHost == "" {
+			panic("SMTP_HOST is required when MAIL_ENABLED=true")
+		}
+		if cfg.SMTPPort <= 0 {
+			panic("SMTP_PORT must be greater than zero when MAIL_ENABLED=true")
+		}
+		if cfg.SMTPUsername == "" || cfg.SMTPPassword == "" {
+			panic("SMTP_USERNAME and SMTP_PASSWORD are required when MAIL_ENABLED=true")
+		}
+		if cfg.MailFrom == "" {
+			panic("MAIL_FROM is required when MAIL_ENABLED=true")
+		}
 	}
 }
 

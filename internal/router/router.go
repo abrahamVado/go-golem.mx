@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/abrahamVado/go-paladin.mx/internal/middleware"
+	apikeysmod "github.com/abrahamVado/go-paladin.mx/internal/modules/apikeys"
+	auditmod "github.com/abrahamVado/go-paladin.mx/internal/modules/audit"
 	authmod "github.com/abrahamVado/go-paladin.mx/internal/modules/auth"
 	companiesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/companies"
 	dashboardmod "github.com/abrahamVado/go-paladin.mx/internal/modules/dashboard"
@@ -14,6 +16,7 @@ import (
 	usersmod "github.com/abrahamVado/go-paladin.mx/internal/modules/users"
 	whitelistmod "github.com/abrahamVado/go-paladin.mx/internal/modules/whitelist"
 	"github.com/abrahamVado/go-paladin.mx/internal/platform/config"
+	"github.com/abrahamVado/go-paladin.mx/internal/platform/mail"
 	"github.com/abrahamVado/go-paladin.mx/internal/response"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -42,7 +45,7 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 	rbacService := rbacmod.New(db)
 
 	authH := authmod.NewHandler(
-		authmod.NewService(authmod.NewRepository(db), cfg),
+		authmod.NewService(authmod.NewRepository(db), cfg, mail.NewSMTPSender(cfg), auditmod.NewRepository(db)),
 		cfg,
 	)
 
@@ -88,6 +91,11 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 		projectsmod.NewService(projectsmod.NewRepository(db)),
 	)
 	projectsmod.RegisterRoutes(private, rbacService, projectsH)
+
+	apiKeysH := apikeysmod.NewHandler(
+		apikeysmod.NewService(apikeysmod.NewRepository(db)),
+	)
+	apikeysmod.RegisterRoutes(private, rbacService, apiKeysH)
 
 	return r
 }

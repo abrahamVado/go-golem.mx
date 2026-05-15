@@ -1,6 +1,7 @@
 package router
 
 import (
+	"github.com/abrahamVado/go-paladin.mx/internal/middleware"
 	"github.com/abrahamVado/go-paladin.mx/internal/modules/auth"
 	"github.com/gin-gonic/gin"
 )
@@ -69,6 +70,8 @@ import (
 //   - IP reputation checks
 //   - Device fingerprinting
 func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
+	authLimited := api.Group("")
+	authLimited.Use(middleware.AuthRateLimit())
 
 	// -------------------------------------------------------------------------
 	// User registration
@@ -85,7 +88,7 @@ func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 	//   - Assign default role
 	//   - Emit audit log
 	//
-	api.POST("/auth/register", authH.Register)
+	authLimited.POST("/auth/register", authH.Register)
 
 	// -------------------------------------------------------------------------
 	// User login
@@ -99,7 +102,8 @@ func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 	//   - Account lock after repeated failures
 	//   - Audit logging
 	//
-	api.POST("/auth/login", authH.Login)
+	authLimited.POST("/auth/login", authH.Login)
+	authLimited.POST("/auth/cli/login", authH.CLILogin)
 
 	// -------------------------------------------------------------------------
 	// Token refresh
@@ -113,7 +117,8 @@ func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 	//   - Invalidate previous refresh tokens
 	//   - Track token device/session
 	//
-	api.POST("/auth/refresh", authH.Refresh)
+	authLimited.POST("/auth/refresh", authH.Refresh)
+	authLimited.POST("/auth/cli/refresh", authH.CLIRefresh)
 
 	// -------------------------------------------------------------------------
 	// Password recovery request
@@ -127,7 +132,7 @@ func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 	//
 	// Always return success response.
 	//
-	api.POST("/auth/recover", authH.Recover)
+	authLimited.POST("/auth/recover", authH.Recover)
 
 	// -------------------------------------------------------------------------
 	// Password reset
@@ -141,7 +146,7 @@ func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 	//   - Token expiration
 	//   - Password strength
 	//
-	api.POST("/auth/reset-password", authH.ResetPassword)
+	authLimited.POST("/auth/reset-password", authH.ResetPassword)
 }
 
 // -----------------------------------------------------------------------------
@@ -187,6 +192,7 @@ func registerPrivateAuthRoutes(private *gin.RouterGroup, authH *auth.Handler) {
 	//   - Clear session metadata
 	//
 	private.POST("/auth/logout", authH.Logout)
+	private.POST("/auth/cli/logout", authH.CLILogout)
 
 	// -------------------------------------------------------------------------
 	// Get current user profile
