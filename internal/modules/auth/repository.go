@@ -78,6 +78,20 @@ type PasswordResetToken struct {
 	CreatedAt time.Time
 }
 
+type EmailVerificationToken struct {
+	ID uuid.UUID `gorm:"type:uuid;primaryKey;default:gen_random_uuid()"`
+
+	UserID    uuid.UUID `gorm:"not null;index"`
+	CompanyID uuid.UUID `gorm:"not null;index"`
+
+	TokenHash string `gorm:"not null;uniqueIndex"`
+
+	ExpiresAt time.Time  `gorm:"not null;index"`
+	UsedAt    *time.Time `gorm:"index"`
+
+	CreatedAt time.Time
+}
+
 // Repository provides database access for the auth module.
 type Repository struct {
 	DB *gorm.DB
@@ -127,8 +141,36 @@ func (r *Repository) FindUserByEmailAndCompanySlug(email string, companySlug str
 	return user, err
 }
 
+func (r *Repository) FindUserAnyStatusByEmailAndCompanySlug(email string, companySlug string) (users.User, error) {
+	var user users.User
+
+	query := r.DB.Model(&users.User{}).
+		Joins("JOIN companies c ON c.id = users.company_id").
+		Where("users.email = ? AND users.deleted_at IS NULL AND c.deleted_at IS NULL", email)
+
+	if companySlug != "" {
+		query = query.Where("c.slug = ?", companySlug)
+	}
+
+	err := query.First(&user).Error
+	return user, err
+}
+
 func (r *Repository) SavePasswordResetToken(token *PasswordResetToken) error {
 	return r.DB.Create(token).Error
+}
+
+func (r *Repository) SaveEmailVerificationToken(token *EmailVerificationToken) error {
+	return r.DB.Create(token).Error
+}
+
+func (r *Repository) FindActiveEmailVerificationToken(hash string) (EmailVerificationToken, error) {
+	var token EmailVerificationToken
+	err := r.DB.
+		Where("token_hash = ? AND used_at IS NULL AND expires_at > ?", hash, time.Now().UTC()).
+		First(&token).
+		Error
+	return token, err
 }
 
 func (r *Repository) FindActivePasswordResetToken(hash string) (PasswordResetToken, error) {
@@ -197,6 +239,30 @@ func (r *Repository) UpdatePasswordAndRevokeSessions(companyID, userID uuid.UUID
 			Where("company_id = ? AND user_id = ? AND revoked_at IS NULL", companyID, userID).
 			Updates(map[string]any{
 				"revoked_at": &now,
+			}).
+			Error
+	})
+}
+
+func (r *Repository) VerifyEmailConsumeToken(tokenID, companyID, userID uuid.UUID) error {
+	now := time.Now().UTC()
+
+	return r.DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&EmailVerificationToken{}).
+			Where("id = ? AND used_at IS NULL", tokenID).
+			Update("used_at", &now)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+
+		return tx.Model(&users.User{}).
+			Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, userID).
+			Updates(map[string]any{
+				"email_verified_at": &now,
+				"status":            "active",
 			}).
 			Error
 	})
@@ -283,6 +349,17 @@ func (r *Repository) RevokeAllRefreshTokensForUser(companyID, userID uuid.UUID) 
 }
 
 func (r *Repository) FindUserByID(companyID, userID uuid.UUID) (users.User, error) {
+	var user users.User
+
+	err := r.DB.
+		Where("company_id = ? AND id = ? AND deleted_at IS NULL", companyID, userID).
+		First(&user).
+		Error
+
+	return user, err
+}
+
+func (r *Repository) FindUserByIDAnyStatus(companyID, userID uuid.UUID) (users.User, error) {
 	var user users.User
 
 	err := r.DB.
@@ -444,6 +521,8 @@ func (r *Repository) CreateCompanyWithClientUser(company companiesmod.Company, u
 		user.AccountType = users.AccountTypePremiumClient
 		user.PremiumExpiresAt = &premiumUntil
 		user.FreeExpiresAt = &freeUntil
+		user.Status = "pending_verification"
+		user.EmailVerifiedAt = nil
 		if err := tx.Create(&user).Error; err != nil {
 			return err
 		}

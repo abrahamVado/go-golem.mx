@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/abrahamVado/go-paladin.mx/internal/platform/config"
 	"github.com/abrahamVado/go-paladin.mx/internal/response"
@@ -165,6 +166,10 @@ func (h *Handler) Login(c *gin.Context) {
 		c.GetHeader("User-Agent"),
 	)
 	if err != nil {
+		if errors.Is(err, ErrEmailNotVerified) {
+			response.Unauthorized(c, err.Error())
+			return
+		}
 		response.Unauthorized(c, "Invalid credentials")
 		return
 	}
@@ -194,6 +199,10 @@ func (h *Handler) CLILogin(c *gin.Context) {
 		c.GetHeader("User-Agent"),
 	)
 	if err != nil {
+		if errors.Is(err, ErrEmailNotVerified) {
+			response.Unauthorized(c, err.Error())
+			return
+		}
 		response.Unauthorized(c, "Invalid credentials")
 		return
 	}
@@ -237,6 +246,49 @@ func (h *Handler) Refresh(c *gin.Context) {
 	response.OK(c, BrowserSessionResponse{
 		TokenType: out.TokenType,
 		ExpiresIn: out.ExpiresIn,
+	})
+}
+
+func (h *Handler) VerifyEmail(c *gin.Context) {
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		var req VerifyEmailRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, "Invalid request")
+			return
+		}
+		token = req.Token
+	}
+
+	if err := h.svc.VerifyEmail(token); err != nil {
+		switch {
+		case errors.Is(err, ErrEmailVerificationInvalid):
+			response.Unauthorized(c, err.Error())
+		default:
+			response.BadRequest(c, err.Error())
+		}
+		return
+	}
+
+	response.OK(c, gin.H{
+		"message": "Email verified successfully",
+	})
+}
+
+func (h *Handler) ResendVerification(c *gin.Context) {
+	var req ResendVerificationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request")
+		return
+	}
+
+	if err := h.svc.ResendVerification(req.Email, req.CompanySlug); err != nil {
+		response.Internal(c, "Unable to send verification email")
+		return
+	}
+
+	response.OK(c, gin.H{
+		"message": "If the account exists and is pending verification, a verification email will be sent",
 	})
 }
 

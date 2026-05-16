@@ -17,6 +17,13 @@ type CLIRefreshRequest struct {
 type RecoverRequest struct {
 	Email string `json:"email" binding:"required,email"`
 }
+type VerifyEmailRequest struct {
+	Token string `json:"token" binding:"required"`
+}
+type ResendVerificationRequest struct {
+	Email       string `json:"email" binding:"required,email"`
+	CompanySlug string `json:"company_slug"`
+}
 type ResetPasswordRequest struct {
 	Token    string `json:"token" binding:"required"`
 	Password string `json:"password" binding:"required,min=10"`
