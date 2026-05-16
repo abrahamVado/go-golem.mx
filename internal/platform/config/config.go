@@ -48,10 +48,11 @@ type Config struct {
 
 	DatabaseURL string
 
-	JWTAccessSecret  string
-	JWTAccessTTL     time.Duration
-	RefreshTokenTTL  time.Duration
-	PasswordResetTTL time.Duration
+	JWTAccessSecret      string
+	JWTAccessTTL         time.Duration
+	RefreshTokenTTL      time.Duration
+	PasswordResetTTL     time.Duration
+	EmailVerificationTTL time.Duration
 
 	CookieDomain string
 	CookieSecure bool
@@ -139,6 +140,10 @@ func Load() Config {
 
 		PasswordResetTTL: time.Duration(
 			envInt("PASSWORD_RESET_TTL_MINUTES", 30),
+		) * time.Minute,
+
+		EmailVerificationTTL: time.Duration(
+			envInt("EMAIL_VERIFICATION_TTL_MINUTES", 1440),
 		) * time.Minute,
 
 		// Cookie configuration

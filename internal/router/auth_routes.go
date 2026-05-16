@@ -89,6 +89,9 @@ func registerPublicAuthRoutes(api *gin.RouterGroup, authH *auth.Handler) {
 	//   - Emit audit log
 	//
 	authLimited.POST("/auth/register", authH.Register)
+	authLimited.GET("/auth/verify-email", authH.VerifyEmail)
+	authLimited.POST("/auth/verify-email", authH.VerifyEmail)
+	authLimited.POST("/auth/resend-verification", authH.ResendVerification)
 
 	// -------------------------------------------------------------------------
 	// User login
