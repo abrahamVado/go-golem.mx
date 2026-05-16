@@ -514,8 +514,7 @@ func (s *Service) Reset(token string, password string) error {
 		return ErrResetTokenInvalid
 	}
 
-	user, err := s.repo.FindUserByID(resetToken.CompanyID, resetToken.UserID)
-	if err != nil {
+	if _, err := s.repo.FindUserByID(resetToken.CompanyID, resetToken.UserID); err != nil {
 		return ErrResetTokenInvalid
 	}
 
