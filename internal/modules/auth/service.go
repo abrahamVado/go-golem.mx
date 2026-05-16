@@ -51,17 +51,19 @@ import (
 // -----------------------------------------------------------------------------
 
 var (
-	ErrInvalidCredentials     = errors.New("invalid credentials")
-	ErrInvalidRefreshToken    = errors.New("invalid refresh token")
-	ErrRegisterNotImplemented = errors.New("register scaffold: create company, owner, owner role inside transaction")
-	ErrProfileNameRequired    = errors.New("name is required")
-	ErrPasswordMismatch       = errors.New("current password is incorrect")
-	ErrInvalidAvatar          = errors.New("avatar must be an image smaller than 2 MB")
-	ErrCompanyNameRequired    = errors.New("company name is required")
-	ErrRegisterNameRequired   = errors.New("name is required")
-	ErrRegisterEmailExists    = errors.New("a user with this email already exists")
-	ErrAccountBlocked         = errors.New("your premium and grace periods have ended; renew your plan to continue")
-	ErrResetTokenInvalid      = errors.New("invalid or expired reset token")
+	ErrInvalidCredentials       = errors.New("invalid credentials")
+	ErrInvalidRefreshToken      = errors.New("invalid refresh token")
+	ErrRegisterNotImplemented   = errors.New("register scaffold: create company, owner, owner role inside transaction")
+	ErrProfileNameRequired      = errors.New("name is required")
+	ErrPasswordMismatch         = errors.New("current password is incorrect")
+	ErrInvalidAvatar            = errors.New("avatar must be an image smaller than 2 MB")
+	ErrCompanyNameRequired      = errors.New("company name is required")
+	ErrRegisterNameRequired     = errors.New("name is required")
+	ErrRegisterEmailExists      = errors.New("a user with this email already exists")
+	ErrAccountBlocked           = errors.New("your premium and grace periods have ended; renew your plan to continue")
+	ErrResetTokenInvalid        = errors.New("invalid or expired reset token")
+	ErrEmailNotVerified         = errors.New("email verification required before login")
+	ErrEmailVerificationInvalid = errors.New("invalid or expired verification token")
 )
 
 type Service struct {
@@ -116,10 +118,15 @@ func (s *Service) Login(
 		return AuthResponse{}, "", ErrInvalidCredentials
 	}
 
-	user, err := s.repo.FindUserByEmailAndCompanySlug(email, companySlug)
+	user, err := s.repo.FindUserAnyStatusByEmailAndCompanySlug(email, companySlug)
 	if err != nil {
 		s.auditAuthFailure(nil, "login_failed", ip, ua, map[string]any{"email": email, "company_slug": companySlug})
 		return AuthResponse{}, "", ErrInvalidCredentials
+	}
+
+	if user.EmailVerifiedAt == nil {
+		s.auditAuthFailure(&user.CompanyID, "login_unverified", ip, ua, map[string]any{"user_id": user.ID.String(), "email": email})
+		return AuthResponse{}, "", ErrEmailNotVerified
 	}
 
 	if !security.CheckPassword(user.PasswordHash, password) {
@@ -376,7 +383,52 @@ func (s *Service) Register(req RegisterRequest) (uuid.UUID, error) {
 		return uuid.Nil, err
 	}
 
+	if err := s.sendVerificationEmail(companyID, userID, email, name); err != nil {
+		return uuid.Nil, err
+	}
+
 	return userID, nil
+}
+
+func (s *Service) VerifyEmail(token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return ErrEmailVerificationInvalid
+	}
+
+	tokenHash := security.HashToken(token)
+	record, err := s.repo.FindActiveEmailVerificationToken(tokenHash)
+	if err != nil {
+		return ErrEmailVerificationInvalid
+	}
+
+	if err := s.repo.VerifyEmailConsumeToken(record.ID, record.CompanyID, record.UserID); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrEmailVerificationInvalid
+		}
+		return err
+	}
+
+	s.auditAuthSuccess(record.CompanyID, &record.UserID, "email_verified", "", "", nil)
+	return nil
+}
+
+func (s *Service) ResendVerification(email, companySlug string) error {
+	email = normalizeEmail(email)
+	companySlug = strings.TrimSpace(strings.ToLower(companySlug))
+	if email == "" {
+		return nil
+	}
+
+	user, err := s.repo.FindUserAnyStatusByEmailAndCompanySlug(email, companySlug)
+	if err != nil {
+		return nil
+	}
+	if user.EmailVerifiedAt != nil {
+		return nil
+	}
+
+	return s.sendVerificationEmail(user.CompanyID, user.ID, user.Email, user.Name)
 }
 
 // Recover starts password recovery.
@@ -487,6 +539,8 @@ type MeResponse struct {
 	BranchID             *uuid.UUID `json:"branch_id,omitempty"`
 	Name                 string     `json:"name"`
 	Email                string     `json:"email"`
+	EmailVerifiedAt      *time.Time `json:"email_verified_at,omitempty"`
+	IsEmailVerified      bool       `json:"is_email_verified"`
 	Role                 string     `json:"role,omitempty"`
 	PermissionNames      []string   `json:"permission_names,omitempty"`
 	AvatarURL            string     `json:"avatar_url,omitempty"`
@@ -631,6 +685,8 @@ func toMeResponse(user users.User, role string, permissionNames []string) MeResp
 		BranchID:             user.BranchID,
 		Name:                 user.Name,
 		Email:                user.Email,
+		EmailVerifiedAt:      user.EmailVerifiedAt,
+		IsEmailVerified:      user.EmailVerifiedAt != nil,
 		Role:                 role,
 		PermissionNames:      permissionNames,
 		AvatarURL:            user.AvatarURL,
@@ -703,4 +759,43 @@ func slugifyCompanyName(input string) string {
 // Database uniqueness should also enforce normalized email.
 func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func (s *Service) sendVerificationEmail(companyID, userID uuid.UUID, email, name string) error {
+	if s.mailer == nil || !s.mailer.Enabled() {
+		return nil
+	}
+
+	token, err := security.NewOpaqueToken(32)
+	if err != nil {
+		return err
+	}
+	tokenHash := security.HashToken(token)
+	if err := s.repo.SaveEmailVerificationToken(&EmailVerificationToken{
+		UserID:    userID,
+		CompanyID: companyID,
+		TokenHash: tokenHash,
+		ExpiresAt: time.Now().UTC().Add(s.cfg.EmailVerificationTTL),
+	}); err != nil {
+		return err
+	}
+
+	verifyURL := fmt.Sprintf("%s/verify-email?token=%s", strings.TrimRight(s.cfg.FrontendURL, "/"), token)
+	htmlBody := fmt.Sprintf(
+		"<p>Hello %s,</p><p>Please verify your email to activate your Paladin account.</p><p><a href=\"%s\">Verify email</a></p><p>If you did not create this account, you can ignore this email.</p>",
+		name,
+		verifyURL,
+	)
+	textBody := fmt.Sprintf(
+		"Hello %s,\n\nPlease verify your email to activate your Paladin account.\n\nVerify here: %s\n\nIf you did not create this account, you can ignore this email.\n",
+		name,
+		verifyURL,
+	)
+
+	if err := s.mailer.Send([]string{email}, "Verify your Paladin email", htmlBody, textBody); err != nil {
+		return err
+	}
+
+	s.auditAuthSuccess(companyID, &userID, "email_verification_sent", "", "", map[string]any{"email": email})
+	return nil
 }

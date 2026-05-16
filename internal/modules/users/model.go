@@ -11,6 +11,7 @@ type User struct {
 	CompanyID        uuid.UUID      `json:"company_id" gorm:"type:uuid;not null;index"`
 	BranchID         *uuid.UUID     `json:"branch_id,omitempty" gorm:"type:uuid;index"`
 	Email            string         `json:"email" gorm:"not null"`
+	EmailVerifiedAt  *time.Time     `json:"email_verified_at,omitempty"`
 	Name             string         `json:"name" gorm:"not null"`
 	AvatarURL        string         `json:"avatar_url,omitempty"`
 	PasswordHash     string         `json:"-" gorm:"not null"`
