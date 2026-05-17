@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>go-paladin.mx Swagger UI</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    html {
+      box-sizing: border-box;
+      overflow-y: scroll;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: inherit;
+    }
+
+    body {
+      margin: 0;
+      background: #faf7f1;
+    }
+
+    .topbar {
+      padding: 18px 24px;
+      border-bottom: 1px solid #e7decf;
+      background: linear-gradient(135deg, #fffaf2, #f1e7d5);
+      font-family: Georgia, "Times New Roman", serif;
+      color: #2f2a24;
+    }
+
+    .topbar h1 {
+      margin: 0 0 6px;
+      font-size: 28px;
+    }
+
+    .topbar p {
+      margin: 0;
+      color: #5f5a52;
+      font-size: 15px;
+    }
+
+    #swagger-ui {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>go-paladin.mx API Explorer</h1>
+    <p>Interactive Swagger UI for <code>docs/swagger.yaml</code></p>
+  </div>
+  <div id="swagger-ui"></div>
+
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.onload = function () {
+      window.ui = SwaggerUIBundle({
+        url: "./swagger.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        layout: "StandaloneLayout",
+        docExpansion: "list",
+        displayRequestDuration: true,
+        defaultModelsExpandDepth: 2,
+        defaultModelExpandDepth: 2,
+        tryItOutEnabled: false
+      });
+    };
+  </script>
+</body>
+</html>
