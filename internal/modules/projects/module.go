@@ -9,8 +9,10 @@ import (
 
 	"github.com/abrahamVado/go-paladin.mx/internal/middleware"
 	rbacmod "github.com/abrahamVado/go-paladin.mx/internal/modules/rbac"
+	rolesmod "github.com/abrahamVado/go-paladin.mx/internal/modules/roles"
 	"github.com/abrahamVado/go-paladin.mx/internal/modules/users"
 	"github.com/abrahamVado/go-paladin.mx/internal/response"
+	"github.com/abrahamVado/go-paladin.mx/internal/security"
 	"github.com/abrahamVado/go-paladin.mx/internal/tenancy"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -156,15 +158,34 @@ type Team struct {
 func (Team) TableName() string { return "teams" }
 
 type TeamMember struct {
-	TeamID         uuid.UUID  `gorm:"column:team_id;primaryKey"`
-	UserID         uuid.UUID  `gorm:"column:user_id;primaryKey"`
-	AddedByUserID  *uuid.UUID `gorm:"column:added_by_user_id"`
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	DeletedAt      gorm.DeletedAt `gorm:"index"`
+	TeamID        uuid.UUID  `gorm:"column:team_id;primaryKey"`
+	UserID        uuid.UUID  `gorm:"column:user_id;primaryKey"`
+	AddedByUserID *uuid.UUID `gorm:"column:added_by_user_id"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	DeletedAt     gorm.DeletedAt `gorm:"index"`
 }
 
 func (TeamMember) TableName() string { return "team_members" }
+
+type ProjectPublicPage struct {
+	ID              uuid.UUID `gorm:"type:uuid;primaryKey"`
+	CompanyID       uuid.UUID `gorm:"type:uuid;not null"`
+	ProjectID       uuid.UUID `gorm:"type:uuid;not null"`
+	Slug            string
+	Title           string
+	HTMLTemplate    string     `gorm:"column:html_template"`
+	AccessMode      string     `gorm:"column:access_mode"`
+	PasswordHash    *string    `gorm:"column:password_hash"`
+	IsEnabled       bool       `gorm:"column:is_enabled"`
+	CreatedByUserID *uuid.UUID `gorm:"column:created_by_user_id"`
+	UpdatedByUserID *uuid.UUID `gorm:"column:updated_by_user_id"`
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       gorm.DeletedAt `gorm:"index"`
+}
+
+func (ProjectPublicPage) TableName() string { return "project_public_pages" }
 
 type Repository struct{ db *gorm.DB }
 
@@ -253,6 +274,26 @@ type moveTaskRequest struct {
 	ColumnKey string `json:"column_key" binding:"required"`
 }
 
+type publicPageUpdateRequest struct {
+	Enabled      bool   `json:"enabled"`
+	AccessMode   string `json:"access_mode"`
+	Password     string `json:"password"`
+	Slug         string `json:"slug"`
+	Title        string `json:"title"`
+	HTMLTemplate string `json:"html_template"`
+}
+
+type portalAccessRequest struct {
+	Password string `json:"password"`
+}
+
+type publicProjectRegistrationRequest struct {
+	Name           string `json:"name" binding:"required"`
+	Email          string `json:"email" binding:"required,email"`
+	Password       string `json:"password" binding:"required,min=10"`
+	PortalPassword string `json:"portal_password"`
+}
+
 type projectSummary struct {
 	ID              string `json:"id"`
 	TeamID          string `json:"team_id,omitempty"`
@@ -271,11 +312,11 @@ type memberSummary struct {
 }
 
 type teamSummary struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Slug        string `json:"slug,omitempty"`
-	MemberCount int64  `json:"member_count,omitempty"`
-	ProjectCount int64 `json:"project_count,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Slug         string `json:"slug,omitempty"`
+	MemberCount  int64  `json:"member_count,omitempty"`
+	ProjectCount int64  `json:"project_count,omitempty"`
 }
 
 type projectMemberSummary struct {
@@ -327,6 +368,21 @@ type taskTimeEntryDTO struct {
 	MinutesSpent int    `json:"minutes_spent"`
 }
 
+type publicPageResponse struct {
+	ProjectID            string `json:"project_id"`
+	ProjectName          string `json:"project_name"`
+	CompanySlug          string `json:"company_slug"`
+	Slug                 string `json:"slug"`
+	Title                string `json:"title"`
+	HTMLTemplate         string `json:"html_template,omitempty"`
+	AccessMode           string `json:"access_mode"`
+	IsEnabled            bool   `json:"is_enabled"`
+	RequiresPassword     bool   `json:"requires_password"`
+	LoginEndpoint        string `json:"login_endpoint"`
+	RegisterEndpoint     string `json:"register_endpoint"`
+	TicketCreateEndpoint string `json:"ticket_create_endpoint"`
+}
+
 type taskHydrated struct {
 	Task
 	ColumnKey   string
@@ -352,6 +408,8 @@ func RegisterRoutes(private *gin.RouterGroup, rbac *rbacmod.Service, h *Handler)
 	private.GET("/projects/:id/members", middleware.RequirePermission(rbac, "project:view"), h.ListProjectMembers)
 	private.PUT("/projects/:id/members", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "member:invite"), h.UpdateProjectMembers)
 	private.GET("/projects/:id/board", middleware.RequirePermission(rbac, "project:view"), h.GetBoard)
+	private.GET("/projects/:id/public-page", middleware.RequirePermission(rbac, "project:view"), h.GetPublicPage)
+	private.PUT("/projects/:id/public-page", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "project:update"), h.UpdatePublicPage)
 	private.POST("/projects/:id/tasks", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "task:create"), h.CreateTask)
 	private.POST("/projects/:id/board/columns", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "project:update"), h.CreateColumn)
 	private.DELETE("/projects/:id/board/columns/:columnId", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "project:update"), h.DeleteColumn)
@@ -359,6 +417,13 @@ func RegisterRoutes(private *gin.RouterGroup, rbac *rbacmod.Service, h *Handler)
 	private.PUT("/tasks/:id", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "task:update"), h.UpdateTask)
 	private.DELETE("/tasks/:id", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "task:delete"), h.DeleteTask)
 	private.PATCH("/tasks/:id/move", middleware.RequirePremiumAccount(rbac.DB), middleware.RequirePermission(rbac, "task:update"), h.MoveTask)
+}
+
+func RegisterPublicRoutes(api *gin.RouterGroup, h *Handler) {
+	public := api.Group("/public/projects")
+	public.GET("/:slug", h.GetPublicProjectPage)
+	public.POST("/:slug/access", h.AccessPublicProjectPage)
+	public.POST("/:slug/register", h.RegisterPublicProjectUser)
 }
 
 func (h *Handler) ListTeams(c *gin.Context) {
@@ -371,10 +436,10 @@ func (h *Handler) ListTeams(c *gin.Context) {
 	out := make([]teamSummary, 0, len(teams))
 	for _, team := range teams {
 		out = append(out, teamSummary{
-			ID: team.ID.String(),
-			Name: team.Name,
-			Slug: team.Slug,
-			MemberCount: team.MemberCount,
+			ID:           team.ID.String(),
+			Name:         team.Name,
+			Slug:         team.Slug,
+			MemberCount:  team.MemberCount,
 			ProjectCount: team.ProjectCount,
 		})
 	}
@@ -668,6 +733,130 @@ func (h *Handler) GetBoard(c *gin.Context) {
 	response.OK(c, board)
 }
 
+func (h *Handler) GetPublicPage(c *gin.Context) {
+	projectID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid project id")
+		return
+	}
+	page, err := h.svc.getOrCreatePublicPage(tenancy.CompanyID(c), tenancy.UserID(c), projectID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.NotFound(c, "Project not found")
+			return
+		}
+		if err.Error() == "project not available" {
+			response.Forbidden(c, err.Error())
+			return
+		}
+		response.Internal(c, "Failed to load public page")
+		return
+	}
+	resp, err := h.svc.buildPublicPageResponse(page, true)
+	if err != nil {
+		response.Internal(c, "Failed to load public page")
+		return
+	}
+	response.OK(c, resp)
+}
+
+func (h *Handler) UpdatePublicPage(c *gin.Context) {
+	projectID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		response.BadRequest(c, "Invalid project id")
+		return
+	}
+	var req publicPageUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid public page payload")
+		return
+	}
+	page, err := h.svc.updatePublicPage(tenancy.CompanyID(c), tenancy.UserID(c), projectID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			response.NotFound(c, "Project not found")
+		default:
+			response.BadRequest(c, err.Error())
+		}
+		return
+	}
+	resp, err := h.svc.buildPublicPageResponse(page, true)
+	if err != nil {
+		response.Internal(c, "Failed to load public page")
+		return
+	}
+	response.OK(c, resp)
+}
+
+func (h *Handler) GetPublicProjectPage(c *gin.Context) {
+	page, err := h.svc.getPublicPageBySlug(strings.TrimSpace(c.Param("slug")), "")
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			response.NotFound(c, "Public project page not found")
+		case err.Error() == "public page password required":
+			response.OK(c, gin.H{
+				"slug":              strings.TrimSpace(c.Param("slug")),
+				"requires_password": true,
+				"access_mode":       "password_protected",
+			})
+		default:
+			response.BadRequest(c, err.Error())
+		}
+		return
+	}
+	resp, err := h.svc.buildPublicPageResponse(page, page.AccessMode == "public")
+	if err != nil {
+		response.Internal(c, "Failed to load public page")
+		return
+	}
+	response.OK(c, resp)
+}
+
+func (h *Handler) AccessPublicProjectPage(c *gin.Context) {
+	var req portalAccessRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid portal access payload")
+		return
+	}
+	page, err := h.svc.getPublicPageBySlug(strings.TrimSpace(c.Param("slug")), req.Password)
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			response.NotFound(c, "Public project page not found")
+		default:
+			response.BadRequest(c, err.Error())
+		}
+		return
+	}
+	resp, err := h.svc.buildPublicPageResponse(page, true)
+	if err != nil {
+		response.Internal(c, "Failed to load public page")
+		return
+	}
+	response.OK(c, resp)
+}
+
+func (h *Handler) RegisterPublicProjectUser(c *gin.Context) {
+	var req publicProjectRegistrationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid project registration payload")
+		return
+	}
+	member, err := h.svc.registerPublicProjectUser(strings.TrimSpace(c.Param("slug")), req)
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			response.NotFound(c, "Public project page not found")
+		default:
+			response.BadRequest(c, err.Error())
+		}
+		return
+	}
+	response.Created(c, member)
+}
+
 func (h *Handler) CreateTask(c *gin.Context) {
 	projectID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
@@ -823,7 +1012,7 @@ func (h *Handler) DeleteColumn(c *gin.Context) {
 
 type teamListRow struct {
 	Team
-	MemberCount int64 `gorm:"column:member_count"`
+	MemberCount  int64 `gorm:"column:member_count"`
 	ProjectCount int64 `gorm:"column:project_count"`
 }
 
@@ -946,7 +1135,7 @@ func toProjectSummary(project Project) projectSummary {
 
 func toTeamSummary(team Team) teamSummary {
 	return teamSummary{
-		ID: team.ID.String(),
+		ID:   team.ID.String(),
 		Name: team.Name,
 		Slug: team.Slug,
 	}
@@ -1033,10 +1222,10 @@ func (s *Service) createTeam(companyID, userID uuid.UUID, req teamCreateRequest)
 		return Team{}, errors.New("team slug is required")
 	}
 	team := Team{
-		ID: uuid.New(),
-		CompanyID: companyID,
-		Name: name,
-		Slug: slug,
+		ID:              uuid.New(),
+		CompanyID:       companyID,
+		Name:            name,
+		Slug:            slug,
 		CreatedByUserID: &userID,
 	}
 	err := s.repo.db.Transaction(func(tx *gorm.DB) error {
@@ -1146,8 +1335,8 @@ func (s *Service) addTeamMember(companyID, actorUserID, teamID uuid.UUID, req ad
 		}
 		created = memberSummary{
 			UserID: user.ID.String(),
-			Name: user.Name,
-			Email: user.Email,
+			Name:   user.Name,
+			Email:  user.Email,
 		}
 		return nil
 	})
@@ -1961,4 +2150,298 @@ func (s *Service) deleteColumn(companyID, userID, projectID, columnID uuid.UUID)
 		}
 		return tx.Delete(&column).Error
 	})
+}
+
+func (s *Service) getOrCreatePublicPage(companyID, userID, projectID uuid.UUID) (ProjectPublicPage, error) {
+	var page ProjectPublicPage
+	err := s.repo.db.Transaction(func(tx *gorm.DB) error {
+		project, err := s.ensureProjectAccess(tx, companyID, userID, projectID)
+		if err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ? AND company_id = ? AND deleted_at IS NULL", projectID, companyID).First(&page).Error; err == nil {
+			return nil
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		slug := s.nextPublicPageSlug(tx, project.Name, project.ProjectKey)
+		page = ProjectPublicPage{
+			ID:              uuid.New(),
+			CompanyID:       companyID,
+			ProjectID:       projectID,
+			Slug:            slug,
+			Title:           project.Name,
+			HTMLTemplate:    "",
+			AccessMode:      "public",
+			IsEnabled:       false,
+			CreatedByUserID: &userID,
+			UpdatedByUserID: &userID,
+		}
+		return tx.Create(&page).Error
+	})
+	return page, err
+}
+
+func (s *Service) updatePublicPage(companyID, userID, projectID uuid.UUID, req publicPageUpdateRequest) (ProjectPublicPage, error) {
+	page, err := s.getOrCreatePublicPage(companyID, userID, projectID)
+	if err != nil {
+		return ProjectPublicPage{}, err
+	}
+	err = s.repo.db.Transaction(func(tx *gorm.DB) error {
+		if _, err := s.ensureProjectAdmin(tx, companyID, userID, projectID); err != nil {
+			return err
+		}
+		updates := map[string]any{
+			"is_enabled":         req.Enabled,
+			"title":              strings.TrimSpace(req.Title),
+			"html_template":      req.HTMLTemplate,
+			"updated_by_user_id": userID,
+		}
+		if updates["title"] == "" {
+			updates["title"] = page.Title
+		}
+		accessMode := normalizeAccessMode(req.AccessMode)
+		if accessMode == "" {
+			accessMode = page.AccessMode
+			if accessMode == "" {
+				accessMode = "public"
+			}
+		}
+		updates["access_mode"] = accessMode
+		if slug := normalizePublicSlug(req.Slug); slug != "" && slug != page.Slug {
+			var count int64
+			if err := tx.Model(&ProjectPublicPage{}).
+				Where("slug = ? AND project_id <> ? AND deleted_at IS NULL", slug, projectID).
+				Count(&count).Error; err != nil {
+				return err
+			}
+			if count > 0 {
+				return errors.New("public slug already exists")
+			}
+			updates["slug"] = slug
+		}
+		if accessMode == "password_protected" {
+			password := strings.TrimSpace(req.Password)
+			if password == "" && page.PasswordHash == nil {
+				return errors.New("password is required for password protected pages")
+			}
+			if password != "" {
+				hash, err := security.HashPassword(password, 12)
+				if err != nil {
+					return err
+				}
+				updates["password_hash"] = hash
+			}
+		} else {
+			updates["password_hash"] = nil
+		}
+		if err := tx.Model(&ProjectPublicPage{}).
+			Where("id = ? AND deleted_at IS NULL", page.ID).
+			Updates(updates).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ? AND deleted_at IS NULL", page.ID).First(&page).Error
+	})
+	return page, err
+}
+
+func (s *Service) getPublicPageBySlug(slug, password string) (ProjectPublicPage, error) {
+	slug = normalizePublicSlug(slug)
+	if slug == "" {
+		return ProjectPublicPage{}, errors.New("public project slug is required")
+	}
+	var page ProjectPublicPage
+	if err := s.repo.db.Where("slug = ? AND is_enabled = ? AND deleted_at IS NULL", slug, true).First(&page).Error; err != nil {
+		return ProjectPublicPage{}, err
+	}
+	if page.AccessMode == "password_protected" {
+		if page.PasswordHash == nil || !security.CheckPassword(*page.PasswordHash, strings.TrimSpace(password)) {
+			return ProjectPublicPage{}, errors.New("public page password required")
+		}
+	}
+	return page, nil
+}
+
+func (s *Service) registerPublicProjectUser(slug string, req publicProjectRegistrationRequest) (memberSummary, error) {
+	name := strings.TrimSpace(req.Name)
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	password := strings.TrimSpace(req.Password)
+	if name == "" {
+		return memberSummary{}, errors.New("name is required")
+	}
+	if err := security.ValidatePassword(password); err != nil {
+		return memberSummary{}, err
+	}
+
+	var created memberSummary
+	err := s.repo.db.Transaction(func(tx *gorm.DB) error {
+		page, err := s.getPublicPageBySlug(slug, req.PortalPassword)
+		if err != nil {
+			return err
+		}
+		var project Project
+		if err := tx.Where("id = ? AND company_id = ? AND deleted_at IS NULL", page.ProjectID, page.CompanyID).First(&project).Error; err != nil {
+			return err
+		}
+		if _, err := s.repo.findUserByEmail(page.CompanyID, email); err == nil {
+			return errors.New("a user with this email already exists in this company; please log in instead")
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		hash, err := security.HashPassword(password, 12)
+		if err != nil {
+			return err
+		}
+		clientRoleID, err := ensureClientRole(tx, page.CompanyID)
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		freeUntil := now.AddDate(0, 0, 30)
+		user := users.User{
+			ID:              uuid.New(),
+			CompanyID:       page.CompanyID,
+			Email:           email,
+			Name:            name,
+			PasswordHash:    hash,
+			Status:          "active",
+			AccountType:     users.AccountTypeFreeClient,
+			FreeExpiresAt:   &freeUntil,
+			EmailVerifiedAt: &now,
+		}
+		if err := tx.Create(&user).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`
+			INSERT INTO user_roles (user_id, company_id, role_id, deleted_at)
+			VALUES (?, ?, ?, NULL)
+			ON CONFLICT (user_id, company_id, role_id)
+			DO UPDATE SET deleted_at = NULL
+		`, user.ID, page.CompanyID, clientRoleID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`
+			INSERT INTO team_members (team_id, user_id, added_by_user_id, created_at, updated_at, deleted_at)
+			VALUES (?, ?, NULL, NOW(), NOW(), NULL)
+			ON CONFLICT (team_id, user_id)
+			DO UPDATE SET deleted_at = NULL, updated_at = NOW()
+		`, project.TeamID, user.ID).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec(`
+			INSERT INTO project_members (project_id, user_id, role, invited_by_user_id, created_at, updated_at, deleted_at)
+			VALUES (?, ?, 'member', NULL, NOW(), NOW(), NULL)
+			ON CONFLICT (project_id, user_id)
+			DO UPDATE SET deleted_at = NULL, role = EXCLUDED.role, updated_at = NOW()
+		`, project.ID, user.ID).Error; err != nil {
+			return err
+		}
+		created = memberSummary{
+			UserID: user.ID.String(),
+			Name:   user.Name,
+			Email:  user.Email,
+		}
+		return nil
+	})
+	return created, err
+}
+
+func ensureClientRole(tx *gorm.DB, companyID uuid.UUID) (uuid.UUID, error) {
+	var role rolesmod.Role
+	err := tx.Where("company_id = ? AND LOWER(name) = ? AND deleted_at IS NULL", companyID, "client").First(&role).Error
+	if err == nil {
+		return role.ID, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return uuid.Nil, err
+	}
+	role = rolesmod.Role{
+		ID:          uuid.New(),
+		CompanyID:   &companyID,
+		Name:        "Client",
+		Description: "Client-facing access limited to project ticket intake",
+		IsSystem:    true,
+	}
+	if err := tx.Create(&role).Error; err != nil {
+		return uuid.Nil, err
+	}
+	if err := tx.Exec(`
+		INSERT INTO role_permissions (role_id, permission_id)
+		SELECT ?, p.id
+		FROM permissions p
+		WHERE p.name IN ?
+		ON CONFLICT (role_id, permission_id) DO NOTHING
+	`, role.ID, []string{"project:view", "task:create", "task:view"}).Error; err != nil {
+		return uuid.Nil, err
+	}
+	return role.ID, nil
+}
+
+func (s *Service) nextPublicPageSlug(tx *gorm.DB, projectName, projectKey string) string {
+	base := normalizePublicSlug(projectName)
+	if base == "" {
+		base = normalizePublicSlug(projectKey)
+	}
+	if base == "" {
+		base = "project"
+	}
+	candidate := base
+	for i := 0; i < 100; i++ {
+		var count int64
+		tx.Model(&ProjectPublicPage{}).Where("slug = ? AND deleted_at IS NULL", candidate).Count(&count)
+		if count == 0 {
+			return candidate
+		}
+		candidate = fmt.Sprintf("%s-%d", base, i+2)
+	}
+	return fmt.Sprintf("%s-%d", base, time.Now().Unix())
+}
+
+func normalizeAccessMode(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "public":
+		return "public"
+	case "password_protected", "password-protected", "password":
+		return "password_protected"
+	default:
+		return ""
+	}
+}
+
+func normalizePublicSlug(value string) string {
+	value = slugify(strings.TrimSpace(value))
+	return strings.Trim(value, "-")
+}
+
+func (s *Service) buildPublicPageResponse(page ProjectPublicPage, includeHTML bool) (publicPageResponse, error) {
+	type pageMeta struct {
+		ProjectName string `gorm:"column:project_name"`
+		CompanySlug string `gorm:"column:company_slug"`
+	}
+	var meta pageMeta
+	if err := s.repo.db.Table("project_public_pages ppp").
+		Select("p.name AS project_name, c.slug AS company_slug").
+		Joins("JOIN projects p ON p.id = ppp.project_id").
+		Joins("JOIN companies c ON c.id = ppp.company_id").
+		Where("ppp.id = ?", page.ID).
+		Scan(&meta).Error; err != nil {
+		return publicPageResponse{}, err
+	}
+	resp := publicPageResponse{
+		ProjectID:            page.ProjectID.String(),
+		ProjectName:          meta.ProjectName,
+		CompanySlug:          meta.CompanySlug,
+		Slug:                 page.Slug,
+		Title:                page.Title,
+		AccessMode:           page.AccessMode,
+		IsEnabled:            page.IsEnabled,
+		RequiresPassword:     page.AccessMode == "password_protected",
+		LoginEndpoint:        "/api/v1/auth/login",
+		RegisterEndpoint:     fmt.Sprintf("/api/v1/public/projects/%s/register", page.Slug),
+		TicketCreateEndpoint: fmt.Sprintf("/api/v1/projects/%s/tasks", page.ProjectID.String()),
+	}
+	if includeHTML {
+		resp.HTMLTemplate = page.HTMLTemplate
+	}
+	return resp, nil
 }
