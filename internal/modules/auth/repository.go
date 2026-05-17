@@ -491,14 +491,34 @@ func (r *Repository) EmailExists(email string) (bool, error) {
 	return count > 0, err
 }
 
-func (r *Repository) CreateCompanyWithClientUser(company companiesmod.Company, user users.User, role rolesmod.Role, permissionNames []string) error {
+func (r *Repository) CreateCompanyWithClientUser(company companiesmod.Company, user users.User, permissionNames []string, clientRole rolesmod.Role) error {
 	return r.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&company).Error; err != nil {
 			return err
 		}
 
-		role.CompanyID = &company.ID
-		if err := tx.Create(&role).Error; err != nil {
+		ownerRole := rolesmod.Role{
+			ID:          uuid.New(),
+			CompanyID:   &company.ID,
+			Name:        "Owner",
+			Description: "Full access to all company modules",
+			IsSystem:    true,
+		}
+		if err := tx.Create(&ownerRole).Error; err != nil {
+			return err
+		}
+
+		clientRole.CompanyID = &company.ID
+		if err := tx.Create(&clientRole).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Exec(`
+			INSERT INTO role_permissions (role_id, permission_id)
+			SELECT ?, p.id
+			FROM permissions p
+			ON CONFLICT (role_id, permission_id) DO NOTHING
+		`, ownerRole.ID).Error; err != nil {
 			return err
 		}
 
@@ -509,7 +529,7 @@ func (r *Repository) CreateCompanyWithClientUser(company companiesmod.Company, u
 				FROM permissions p
 				WHERE p.name IN ?
 				ON CONFLICT (role_id, permission_id) DO NOTHING
-			`, role.ID, permissionNames).Error; err != nil {
+			`, clientRole.ID, permissionNames).Error; err != nil {
 				return err
 			}
 		}
@@ -532,7 +552,7 @@ func (r *Repository) CreateCompanyWithClientUser(company companiesmod.Company, u
 			VALUES (?, ?, ?, NULL)
 			ON CONFLICT (user_id, company_id, role_id)
 			DO UPDATE SET deleted_at = NULL
-		`, user.ID, company.ID, role.ID).Error; err != nil {
+		`, user.ID, company.ID, ownerRole.ID).Error; err != nil {
 			return err
 		}
 

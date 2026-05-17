@@ -365,18 +365,16 @@ func (s *Service) Register(req RegisterRequest) (uuid.UUID, error) {
 			PasswordHash: hash,
 			Status:       "active",
 		},
+		[]string{
+			"project:view",
+			"task:create",
+			"task:view",
+		},
 		rolesmod.Role{
 			ID:          roleID,
 			Name:        "Client",
-			Description: "Client-facing access limited to company overview and delivery workspaces",
+			Description: "Client-facing access limited to project ticket intake",
 			IsSystem:    true,
-		},
-		[]string{
-			"organization:view", "organization:update", "member:invite", "member:update", "member:remove", "role:manage",
-			"project:create", "project:view", "project:update", "project:delete",
-			"task:create", "task:view", "task:update", "task:delete",
-			"file:upload", "file:view", "file:delete",
-			"webhook:manage", "billing:manage", "apikey:manage", "audit:view", "chat:use",
 		},
 	)
 	if err != nil {
