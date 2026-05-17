@@ -90,6 +90,7 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 	projectsH := projectsmod.NewHandler(
 		projectsmod.NewService(projectsmod.NewRepository(db)),
 	)
+	projectsmod.RegisterPublicRoutes(api, projectsH)
 	projectsmod.RegisterRoutes(private, rbacService, projectsH)
 
 	apiKeysH := apikeysmod.NewHandler(

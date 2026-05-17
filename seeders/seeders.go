@@ -70,15 +70,15 @@ func Run(db *gorm.DB, cfg config.Config) error {
 			}).Error; err != nil {
 				return err
 			}
-		if err := ensureOwnerAccess(tx, company.ID, user.ID); err != nil {
-			return err
-		}
-		if err := ensureDefaultTeam(tx, company.ID, company.Name, company.Slug, user.ID); err != nil {
-			return err
-		}
-		if !cfg.SeedDemoData {
-			return nil
-		}
+			if err := ensureOwnerAccess(tx, company.ID, user.ID); err != nil {
+				return err
+			}
+			if err := ensureDefaultTeam(tx, company.ID, company.Name, company.Slug, user.ID); err != nil {
+				return err
+			}
+			if !cfg.SeedDemoData {
+				return nil
+			}
 			return seedDashboardDemoData(tx, cfg, company.ID, user.ID)
 		}
 
@@ -179,28 +179,9 @@ func ensurePlatformPermissions(tx *gorm.DB) error {
 
 func ensureClientRolePermissions(tx *gorm.DB) error {
 	clientPermissionNames := []string{
-		"organization:view",
-		"organization:update",
-		"member:invite",
-		"member:update",
-		"member:remove",
-		"role:manage",
-		"project:create",
 		"project:view",
-		"project:update",
-		"project:delete",
 		"task:create",
 		"task:view",
-		"task:update",
-		"task:delete",
-		"file:upload",
-		"file:view",
-		"file:delete",
-		"webhook:manage",
-		"billing:manage",
-		"apikey:manage",
-		"audit:view",
-		"chat:use",
 	}
 
 	var clientRoleIDs []uuid.UUID
