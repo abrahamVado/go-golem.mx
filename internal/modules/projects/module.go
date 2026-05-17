@@ -294,6 +294,18 @@ type publicProjectRegistrationRequest struct {
 	PortalPassword string `json:"portal_password"`
 }
 
+type publicTicketCreateRequest struct {
+	RequesterName  string `json:"requester_name" binding:"required"`
+	RequesterEmail string `json:"requester_email" binding:"required,email"`
+	Company        string `json:"company"`
+	Title          string `json:"title" binding:"required"`
+	Description    string `json:"description" binding:"required"`
+	Priority       string `json:"priority"`
+	Category       string `json:"category"`
+	DueDate        string `json:"due_date"`
+	PortalPassword string `json:"portal_password"`
+}
+
 type projectSummary struct {
 	ID              string `json:"id"`
 	TeamID          string `json:"team_id,omitempty"`
@@ -424,6 +436,7 @@ func RegisterPublicRoutes(api *gin.RouterGroup, h *Handler) {
 	public.GET("/:slug", h.GetPublicProjectPage)
 	public.POST("/:slug/access", h.AccessPublicProjectPage)
 	public.POST("/:slug/register", h.RegisterPublicProjectUser)
+	public.POST("/:slug/tickets", h.CreatePublicProjectTicket)
 }
 
 func (h *Handler) ListTeams(c *gin.Context) {
@@ -855,6 +868,25 @@ func (h *Handler) RegisterPublicProjectUser(c *gin.Context) {
 		return
 	}
 	response.Created(c, member)
+}
+
+func (h *Handler) CreatePublicProjectTicket(c *gin.Context) {
+	var req publicTicketCreateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid public ticket payload")
+		return
+	}
+	task, err := h.svc.createPublicProjectTicket(strings.TrimSpace(c.Param("slug")), req)
+	if err != nil {
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			response.NotFound(c, "Public project page not found")
+		default:
+			response.BadRequest(c, err.Error())
+		}
+		return
+	}
+	response.Created(c, task)
 }
 
 func (h *Handler) CreateTask(c *gin.Context) {
@@ -2346,6 +2378,108 @@ func (s *Service) registerPublicProjectUser(slug string, req publicProjectRegist
 	return created, err
 }
 
+func (s *Service) createPublicProjectTicket(slug string, req publicTicketCreateRequest) (taskResponse, error) {
+	requesterName := strings.TrimSpace(req.RequesterName)
+	requesterEmail := strings.ToLower(strings.TrimSpace(req.RequesterEmail))
+	title := strings.TrimSpace(req.Title)
+	description := strings.TrimSpace(req.Description)
+	company := strings.TrimSpace(req.Company)
+	category := strings.TrimSpace(req.Category)
+
+	if requesterName == "" {
+		return taskResponse{}, errors.New("requester name is required")
+	}
+	if requesterEmail == "" {
+		return taskResponse{}, errors.New("requester email is required")
+	}
+	if title == "" {
+		return taskResponse{}, errors.New("ticket title is required")
+	}
+	if description == "" {
+		return taskResponse{}, errors.New("ticket description is required")
+	}
+
+	var result taskResponse
+	err := s.repo.db.Transaction(func(tx *gorm.DB) error {
+		page, err := s.getPublicPageBySlug(slug, req.PortalPassword)
+		if err != nil {
+			return err
+		}
+		var project Project
+		if err := tx.Where("id = ? AND company_id = ? AND deleted_at IS NULL", page.ProjectID, page.CompanyID).First(&project).Error; err != nil {
+			return err
+		}
+		board, err := ensureDefaultBoard(tx, page.CompanyID, project.ID)
+		if err != nil {
+			return err
+		}
+		column, err := findColumnByKey(tx, board.ID, "todo")
+		if err != nil {
+			return err
+		}
+		var maxNumber int64
+		tx.Model(&Task{}).Where("company_id = ?", page.CompanyID).Select("COALESCE(MAX(task_number), 0)").Scan(&maxNumber)
+		dueDate, err := parseDate(req.DueDate)
+		if err != nil {
+			return err
+		}
+
+		composedDescription := []string{
+			fmt.Sprintf("Requester: %s", requesterName),
+			fmt.Sprintf("Email: %s", requesterEmail),
+		}
+		if company != "" {
+			composedDescription = append(composedDescription, fmt.Sprintf("Company: %s", company))
+		}
+		if category != "" {
+			composedDescription = append(composedDescription, fmt.Sprintf("Category: %s", category))
+		}
+		composedDescription = append(composedDescription, "", description)
+
+		task := Task{
+			ID:          uuid.New(),
+			CompanyID:   page.CompanyID,
+			ProjectID:   project.ID,
+			BoardID:     &board.ID,
+			ColumnID:    &column.ID,
+			TaskNumber:  maxNumber + 1,
+			Title:       title,
+			Description: strings.Join(composedDescription, "\n"),
+			StatusKey:   column.ColumnKey,
+			Priority:    priorityOrDefault(req.Priority),
+			DueDate:     dueDate,
+			Position:    nextTaskPosition(tx, project.ID, &column.ID),
+			CreatedAt:   time.Now().UTC(),
+			UpdatedAt:   time.Now().UTC(),
+		}
+		if err := tx.Create(&task).Error; err != nil {
+			return err
+		}
+
+		taskReq := taskPayload{
+			Title:       task.Title,
+			Description: task.Description,
+			ColumnKey:   column.ColumnKey,
+			Priority:    strings.ToUpper(req.Priority),
+			DueDate:     req.DueDate,
+			Tags:        []string{"portal"},
+		}
+		if category != "" {
+			taskReq.Tags = append(taskReq.Tags, slugify(category))
+		}
+		if err := replaceTaskRelations(tx, page.CompanyID, task.ID, taskReq); err != nil {
+			return err
+		}
+		hydrated, err := hydrateTasks(tx, page.CompanyID, []Task{task}, []BoardColumn{column})
+		if err != nil {
+			return err
+		}
+		result = toTaskResponse(hydrated[0])
+		return nil
+	})
+	return result, err
+}
+
 func ensureClientRole(tx *gorm.DB, companyID uuid.UUID) (uuid.UUID, error) {
 	var role rolesmod.Role
 	err := tx.Where("company_id = ? AND LOWER(name) = ? AND deleted_at IS NULL", companyID, "client").First(&role).Error
@@ -2438,7 +2572,7 @@ func (s *Service) buildPublicPageResponse(page ProjectPublicPage, includeHTML bo
 		RequiresPassword:     page.AccessMode == "password_protected",
 		LoginEndpoint:        "/api/v1/auth/login",
 		RegisterEndpoint:     fmt.Sprintf("/api/v1/public/projects/%s/register", page.Slug),
-		TicketCreateEndpoint: fmt.Sprintf("/api/v1/projects/%s/tasks", page.ProjectID.String()),
+		TicketCreateEndpoint: fmt.Sprintf("/api/v1/public/projects/%s/tickets", page.Slug),
 	}
 	if includeHTML {
 		resp.HTMLTemplate = page.HTMLTemplate
