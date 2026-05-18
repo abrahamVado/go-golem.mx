@@ -32,7 +32,7 @@ func Run(db *gorm.DB, cfg config.Config) error {
 			return err
 		}
 
-		if err := ensureClientRolePermissions(tx); err != nil {
+		if err := ensureDefaultRolePermissions(tx); err != nil {
 			return err
 		}
 
@@ -177,42 +177,63 @@ func ensurePlatformPermissions(tx *gorm.DB) error {
 	return nil
 }
 
-func ensureClientRolePermissions(tx *gorm.DB) error {
-	clientPermissionNames := []string{
-		"project:view",
-		"task:create",
-		"task:view",
+func ensureDefaultRolePermissions(tx *gorm.DB) error {
+	rolePermissions := map[string][]string{
+		"owner": {
+			"organization:view", "organization:update", "member:invite", "member:update", "member:remove", "role:manage",
+			"project:create", "project:view", "project:update", "project:delete",
+			"task:create", "task:view", "task:update", "task:delete",
+			"file:upload", "file:view", "file:delete", "webhook:manage", "billing:manage", "apikey:manage", "audit:view", "chat:use",
+		},
+		"admin": {
+			"organization:view", "organization:update", "member:invite", "member:update", "member:remove", "role:manage",
+			"project:create", "project:view", "project:update", "project:delete",
+			"task:create", "task:view", "task:update", "task:delete",
+			"file:upload", "file:view", "file:delete", "webhook:manage", "billing:manage", "apikey:manage", "audit:view", "chat:use",
+		},
+		"member": {
+			"organization:view", "project:create", "project:view", "project:update",
+			"task:create", "task:view", "task:update", "file:upload", "file:view", "chat:use",
+		},
+		"client": {
+			"project:view", "task:create", "task:view",
+		},
+		"guest": {
+			"organization:view", "project:view", "task:view", "file:view",
+		},
 	}
 
-	var clientRoleIDs []uuid.UUID
-	if err := tx.Model(&rolesmod.Role{}).
-		Where("LOWER(name) = ? AND deleted_at IS NULL", "client").
-		Pluck("id", &clientRoleIDs).Error; err != nil {
-		return err
-	}
-
-	if len(clientRoleIDs) == 0 {
-		return nil
-	}
-
-	var permissionIDs []uuid.UUID
-	if err := tx.Model(&permissionsmod.Permission{}).
-		Where("name IN ?", clientPermissionNames).
-		Pluck("id", &permissionIDs).Error; err != nil {
-		return err
-	}
-
-	for _, roleID := range clientRoleIDs {
-		if err := tx.Exec(`DELETE FROM role_permissions WHERE role_id = ?`, roleID).Error; err != nil {
+	for roleName, permissionNames := range rolePermissions {
+		var roleIDs []uuid.UUID
+		if err := tx.Model(&rolesmod.Role{}).
+			Where("LOWER(name) = ? AND deleted_at IS NULL", roleName).
+			Pluck("id", &roleIDs).Error; err != nil {
 			return err
 		}
-		for _, permissionID := range permissionIDs {
-			if err := tx.Exec(`
-				INSERT INTO role_permissions (role_id, permission_id)
-				VALUES (?, ?)
-				ON CONFLICT (role_id, permission_id) DO NOTHING
-			`, roleID, permissionID).Error; err != nil {
+
+		if len(roleIDs) == 0 {
+			continue
+		}
+
+		var permissionIDs []uuid.UUID
+		if err := tx.Model(&permissionsmod.Permission{}).
+			Where("name IN ?", permissionNames).
+			Pluck("id", &permissionIDs).Error; err != nil {
+			return err
+		}
+
+		for _, roleID := range roleIDs {
+			if err := tx.Exec(`DELETE FROM role_permissions WHERE role_id = ?`, roleID).Error; err != nil {
 				return err
+			}
+			for _, permissionID := range permissionIDs {
+				if err := tx.Exec(`
+					INSERT INTO role_permissions (role_id, permission_id)
+					VALUES (?, ?)
+					ON CONFLICT (role_id, permission_id) DO NOTHING
+				`, roleID, permissionID).Error; err != nil {
+					return err
+				}
 			}
 		}
 	}
